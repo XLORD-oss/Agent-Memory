@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-memory"
+version = "0.1.0"
+description = "Compact, self-maintaining memory for LLM agents: near-linear token cost, no context rot, less self-anchoring."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["llm", "memory", "agents", "context-engineering", "long-context", "sycophancy"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.optional-dependencies]
+llm = ["openai>=1.0"]
+plot = ["matplotlib>=3.5"]
+dev = ["pytest>=7.0", "openai>=1.0", "matplotlib>=3.5"]
+
+[project.urls]
+Homepage = "https://github.com/XLORD-oss/Agent-Memory"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

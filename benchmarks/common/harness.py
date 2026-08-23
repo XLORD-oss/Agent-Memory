@@ -29,9 +29,14 @@ def add_model_args(parser: argparse.ArgumentParser, default_model: str = "gpt-4o
     parser.add_argument("--model", default=default_model, help="model name")
     parser.add_argument("--base-url", default=None, help="OpenAI-compatible base URL")
     parser.add_argument(
+        "--api-key",
+        default=None,
+        help="API key (takes priority over --api-key-env)",
+    )
+    parser.add_argument(
         "--api-key-env",
         default="OPENAI_API_KEY",
-        help="env var holding the API key",
+        help="env var holding the API key (used only if --api-key is not set)",
     )
     parser.add_argument(
         "--mock",
@@ -50,10 +55,11 @@ def make_client(args: argparse.Namespace, mock_mode: str = "context_rot") -> Cli
     """Build a MockModel or an OpenAI-compatible client from CLI args."""
     if args.mock:
         return MockModel(mode=mock_mode, seed=args.seed)
-    api_key = os.environ.get(args.api_key_env)
+    api_key = args.api_key or os.environ.get(args.api_key_env)
     if not api_key:
         print(
-            f"[harness] {args.api_key_env} is not set and --mock was not passed; "
+            f"[harness] no API key provided (--api-key or {args.api_key_env}) "
+            "and --mock was not passed; "
             "falling back to the MockModel so the harness still runs.",
             file=sys.stderr,
         )

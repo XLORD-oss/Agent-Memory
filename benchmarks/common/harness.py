@@ -145,7 +145,8 @@ def print_accuracy_table(trials: List[Trial], conditions: List[str]) -> None:
         )
 
 
-def write_json(path: Path, payload: dict) -> None:
+def write_json(path: Path | str, payload: dict) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)

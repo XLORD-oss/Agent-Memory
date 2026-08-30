@@ -9,6 +9,7 @@ matters:
 |---|---|---|---|
 | [`context_rot/`](context_rot/README.md) | Compact memory recovers accuracy lost to long-context degradation (the 30–50% effect Chroma measured across 18 frontier models) | Chroma's focused-vs-full-prompt design (research.trychroma.com/context-rot) | ✅ `--mock` |
 | [`sycophancy/`](sycophancy/README.md) | Keeping prior assistant outputs out of context reduces self-anchoring / sycophantic flipping under sustained push-back | FlipFlop / SYCON Bench ToF & NoF metrics (arXiv:2505.23840) | ✅ `--mock` |
+| [`fidelity/`](fidelity/README.md) | The compact memory is a lossy compression — measure its *assimilation error*: state fidelity vs cap (rate-distortion), distillation loss, usage-protected retention | Reduced-order-model fidelity; no model called, scores the memory files directly | ✅ always |
 | [`token_cost/`](token_cost/README.md) | Token cost is quadratic under replay, near-linear under compact memory | Arithmetic (no model needed) | ✅ always |
 
 Every harness runs two conditions over the **same task, same model, same script**:

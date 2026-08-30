@@ -13,6 +13,8 @@ with real models.
 - [x] Token-cost model (O(T²) vs O(T))
 - [x] Context-rot benchmark (Chroma methodology) — runs offline with mock
 - [x] Sycophancy FlipFlop benchmark (SYCON ToF/NoF metrics) — runs offline with mock
+- [x] Memory-fidelity benchmark (assimilation error): state fidelity vs cap
+      (rate-distortion), distillation loss, usage-protected retention — offline
 - [x] Unified memory policy (priority × usage × recency × affinity per kind)
 - [x] Usage-weighted retention + pinning + auto task detection
 - [x] **`analyze_trace`** — replay real chat logs through any policy, offline;

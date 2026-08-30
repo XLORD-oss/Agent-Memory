@@ -46,11 +46,19 @@ class MemoryEngine:
         distiller: Optional[DistillerLike] = None,
         memory_cap_tokens: int = DEFAULT_MEMORY_CAP_TOKENS,
         recent_window: int = DEFAULT_RECENT_WINDOW,
+        archive_policy: str = "usage",
+        usage_threshold: float = 0.4,
     ) -> None:
         self.store = store or MemoryStore(state_dir)
         self.distiller = distiller or RuleDistiller()
         self.memory_cap_tokens = memory_cap_tokens
         self.recent_window = recent_window
+        # "usage" archives least-referenced entries first (memory as a learned
+        # cache); "oldest" archives by age (previous behavior).
+        self.archive_policy = archive_policy
+        # Fraction of an entry's tokens that must appear in an answer for the
+        # entry to count as "used". Zero API cost: pure token overlap.
+        self.usage_threshold = usage_threshold
 
         # Audit log of raw turns (kept for accountability, never replayed).
         self._raw_turns: List[dict] = []
@@ -107,15 +115,67 @@ class MemoryEngine:
         return None
 
     def process_turn(
-        self, user_text: str, assistant_text: Optional[str] = None, archive: bool = True
+        self,
+        user_text: str,
+        assistant_text: Optional[str] = None,
+        archive: bool = True,
+        track_usage: bool = True,
     ) -> int:
-        """End-to-end: ingest, distill, merge, and optionally archive. Returns new entries."""
+        """End-to-end: ingest, distill, merge, optionally track usage and archive.
+
+        Returns the number of new entries committed.
+        """
         self.ingest(user_text, assistant_text)
         ext = self.distill_pending()
         new = self.merge(ext)
+        if track_usage and assistant_text:
+            self._track_usage(assistant_text)
         if archive:
             self.archive_if_needed()
         return new
+
+    # -- usage tracking (learned cache) -------------------------------------
+
+    def _track_usage(self, reply: str) -> int:
+        """Count how many memory entries the model's answer actually referenced.
+
+        Zero-API-cost heuristic: an entry counts as used when a threshold
+        fraction of its content tokens appears in the reply. This turns memory
+        into a **learned cache** — entries your sessions keep referencing are
+        protected from eviction; entries that never get referenced are archived
+        first, regardless of age.
+
+        Returns the number of entries marked used.
+        """
+        from .storage import _tokenize
+
+        reply_tokens = set(_tokenize(reply))
+        if not reply_tokens:
+            return 0
+        used_any = False
+        for entry in self.store.all():
+            entry_tokens = set(_tokenize(entry.text))
+            if not entry_tokens:
+                continue
+            hit = len(entry_tokens & reply_tokens) / len(entry_tokens)
+            if hit >= self.usage_threshold:
+                entry.mark_used()
+                used_any = True
+        if used_any:
+            self.store.save()
+        return sum(1 for e in self.store.all() if e.uses and e.last_used_at)
+
+    def usage_report(self, top: Optional[int] = None) -> List[dict]:
+        """Entries sorted by times referenced — the memory's real footprint."""
+        entries = sorted(
+            self.store.all(), key=lambda e: e.uses, reverse=True
+        )
+        if top:
+            entries = entries[:top]
+        return [
+            {"text": e.text, "kind": e.kind, "uses": e.uses, "last_used_at": e.last_used_at}
+            for e in entries
+        ]
 
     # -- context ------------------------------------------------------------
 
@@ -123,26 +183,37 @@ class MemoryEngine:
         n = n if n is not None else self.recent_window
         return list(self._raw_turns[-n:])
 
-    def build_context(self, user_text: str = "") -> Context:
-        ctx = Context.build(self, user_text)
+    def build_context(
+        self, user_text: str = "", mode: str = "minimal", task_window: int = 8
+    ) -> Context:
+        """Assemble a prompt in the given presentation mode (minimal | task)."""
+        if mode not in ("minimal", "task"):
+            raise ValueError(f"unknown context mode {mode!r} (choose 'minimal' or 'task')")
+        ctx = Context.build(self, user_text, mode=mode, task_window=task_window)
         self._prompt_tokens_total += ctx.prompt_tokens
         return ctx
 
     # -- archiving ----------------------------------------------------------
 
-    def archive_if_needed(self) -> int:
-        """Move oldest entries to the archive while active memory exceeds the cap.
+    def archive_if_needed(self, policy: Optional[str] = None) -> int:
+        """Evict entries while active memory exceeds the cap.
+
+        ``policy="usage"`` (default) archives least-referenced entries first —
+        decisions (conclusions) and recently-used entries are protected, so the
+        memory that survives is the memory the model actually draws on. This is
+        the "learned cache" behavior.
+
+        ``policy="oldest"`` archives by age (the previous behavior).
 
         Returns the number of entries archived this call.
         """
+        policy = policy or self.archive_policy
         moved = 0
         while self.memory_tokens() > self.memory_cap_tokens:
-            oldest = sorted(self.store.all(), key=lambda e: e.updated_at)
-            if not oldest:
+            entries = list(self.store.all())
+            if not entries:
                 break
-            # Keep conclusions (decisions) and the very latest entry in context;
-            # archive the oldest non-conclusion / oldest overall first.
-            victim = _pick_victim(oldest)
+            victim = _pick_victim(entries, policy=policy)
             if victim is None:
                 break
             n = self.store.archive_entries([victim.id])
@@ -180,9 +251,16 @@ class MemoryEngine:
         return self._prompt_tokens_total
 
 
-def _pick_victim(entries: List[MemoryEntry]) -> Optional[MemoryEntry]:
-    """Choose what to archive first: oldest non-conclusion, else oldest."""
-    non_conclusions = [e for e in entries if e.kind != "conclusion"]
-    if non_conclusions:
-        return non_conclusions[0]
-    return entries[0] if entries else None
+def _pick_victim(entries: List[MemoryEntry], policy: str = "usage") -> Optional[MemoryEntry]:
+    """Choose the entry to archive first.
+
+    ``usage``: least-referenced first; never evict decisions (conclusions);
+    recently-used entries ride out the pressure. ``oldest``: by age.
+    """
+    candidates = [e for e in entries if e.kind != "conclusion"]
+    if not candidates:
+        return None  # never evict the decisions themselves
+    if policy == "oldest":
+        return min(candidates, key=lambda e: e.updated_at)
+    # usage: lowest uses first; tie-break by age (older goes first).
+    return min(candidates, key=lambda e: (e.uses, e.updated_at))

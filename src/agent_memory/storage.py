@@ -43,6 +43,8 @@ class MemoryEntry:
     created_at: str = ""
     updated_at: str = ""
     tags: List[str] = field(default_factory=list)
+    uses: int = 0
+    last_used_at: str = ""
     id: str = ""
 
     def __post_init__(self) -> None:
@@ -60,6 +62,11 @@ class MemoryEntry:
 
     def touch(self) -> None:
         self.updated_at = _now()
+
+    def mark_used(self) -> None:
+        """Record that the model referenced this entry in an answer."""
+        self.uses += 1
+        self.last_used_at = _now()
 
     def token_overlap(self, other: "MemoryEntry") -> float:
         """Token-set Jaccard similarity; used for rule-based dedupe/merge."""
@@ -109,7 +116,7 @@ class MemoryStore:
 
     def save(self) -> None:
         """Atomic write (tmp file + rename) to avoid corrupting memory on crash."""
-        payload = {"version": 1, "entries": [e.to_dict() for e in self._entries]}
+        payload = {"version": 2, "entries": [e.to_dict() for e in self._entries]}
         tmp = self.state_path.with_suffix(".json.tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2, sort_keys=True)

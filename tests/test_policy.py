@@ -101,6 +101,23 @@ def test_auto_profile_detection():
     assert detect_profile("hello, how are you?") == "general"
 
 
+def test_research_profile_detects_chaos_weather_domain():
+    # Domain-specific terms from the chaos-weather research profile.
+    assert detect_profile("forecast the monsoon onset with the Lorenz-63 ensemble") == "research"
+    assert detect_profile("compute the Lyapunov spectrum near the L1 point") == "research"
+    assert detect_profile("calibrate the teleconnection ensemble") == "research"
+
+
+def test_research_profile_affinity_boosts_domain_facts():
+    eng = _engine()
+    eng.set_policy_profile("research")
+    # A chaos-domain fact at high age should outscore a generic fact of the same age.
+    domain = eng.policy.affinity("Lyapunov spectrum of the monsoon attractor", [])
+    generic = eng.policy.affinity("the printer is on the third floor", [])
+    assert domain > generic
+    assert eng.policy.affinity_weight > 0
+
+
 def test_auto_profile_in_build_context():
     eng = _engine()
     eng.process_turn("help me debug", "ok")

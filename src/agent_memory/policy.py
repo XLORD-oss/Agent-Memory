@@ -150,9 +150,19 @@ RESEARCH = MemoryPolicy(
     affinity_weight=0.3,
     half_life_turns=60,
     task_window_turns=6,
-    boost_tags={"data", "model", "paper", "theory", "experiment", "derivation", "analysis"},
+    boost_tags={"data", "model", "paper", "theory", "experiment", "derivation", "analysis",
+                "chaos", "climate", "numerics", "time-series"},
     boost_tokens={"hypothesis", "derivation", "equation", "dataset", "correlat", "causal",
-                  "simulation", "chaos", "dynamics", "paper", "arxiv"},
+                  "simulation", "chaos", "dynamics", "paper", "arxiv",
+                  # nonlinear dynamics / applied chaos
+                  "lyapunov", "attractor", "bifurcation", "lorenz", "strange attractor",
+                  "three-body", "n-body", "phase space", "embedding", "delay embedding",
+                  "poincare", "sensitive dependence", "butterfly effect",
+                  # weather / climate / geophysical fluid
+                  "weather", "forecast", "convection", "turbulence", "baroclinic",
+                  "climate", "reanalysis", "ensemble", "assimilation", "nudging",
+                  "sst", "teleconnection", "monsoon", "cyclone", "jet stream",
+                  "initial condition", "predictability", "unstable manifold"},
 )
 
 WRITING = MemoryPolicy(
@@ -184,7 +194,10 @@ _PROFILE_KEYWORDS: Dict[str, list] = {
                "tests", "crash", "traceback", "import ", "```", "syntax"],
     "research": ["analysis", "data", "paper", "derive", "model", "experiment", "hypothesis",
                  "simulation", "chaos", "dynamics", "equation", "theory", "arxiv", "result",
-                 "correlation", "dataset", "literature"],
+                 "correlation", "dataset", "literature",
+                 "lyapunov", "attractor", "bifurcation", "lorenz", "forecast", "weather",
+                 "climate", "ensemble", "assimilation", "three-body", "phase space",
+                 "embedding", "predictability", "turbulence", "monsoon", "n-body"],
     "writing": ["draft", "edit", "essay", "rewrite", "tone", "style", "chapter", "paragraph",
                 "outline", "manuscript", "blog", "post", "copy"],
 }

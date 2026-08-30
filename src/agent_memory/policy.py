@@ -70,6 +70,10 @@ class MemoryPolicy:
             "fact": 1.0,
             "conclusion": 1.0,
             "preference": 1.0,
+            "principle": 1.4,   # first principles: strong in context
+            "argument": 1.0,
+            "perspective": 0.9,
+            "profile": 1.2,     # the user profile always matters
             "user_turn": 0.6,
             "assistant_turn": 0.0,  # fresh-chat default: raw replies never replayed
         }
@@ -113,6 +117,7 @@ class MemoryPolicy:
 GENERAL = MemoryPolicy(
     kind_weights={
         "fact": 1.0, "conclusion": 1.0, "preference": 1.0,
+        "principle": 1.4, "argument": 1.0, "perspective": 0.9, "profile": 1.2,
         "user_turn": 0.6, "assistant_turn": 0.0,
     },
     priority_weight=1.0,
@@ -126,6 +131,7 @@ GENERAL = MemoryPolicy(
 CODING = MemoryPolicy(
     kind_weights={
         "fact": 1.0, "conclusion": 1.1, "preference": 0.8,
+        "principle": 1.3, "argument": 1.1, "perspective": 0.8, "profile": 0.9,
         "user_turn": 0.7, "assistant_turn": 0.9,  # working memory for code
     },
     priority_weight=1.0,
@@ -142,6 +148,7 @@ CODING = MemoryPolicy(
 RESEARCH = MemoryPolicy(
     kind_weights={
         "fact": 1.2, "conclusion": 1.0, "preference": 0.8,
+        "principle": 1.6, "argument": 1.3, "perspective": 1.2, "profile": 1.0,
         "user_turn": 0.5, "assistant_turn": 0.15,  # light working memory of reasoning
     },
     priority_weight=1.0,
@@ -168,6 +175,7 @@ RESEARCH = MemoryPolicy(
 WRITING = MemoryPolicy(
     kind_weights={
         "fact": 0.8, "conclusion": 0.9, "preference": 1.1,
+        "principle": 1.1, "argument": 1.0, "perspective": 0.9, "profile": 1.1,
         "user_turn": 0.5, "assistant_turn": 0.25,
     },
     priority_weight=1.2,  # user priorities matter most for style work

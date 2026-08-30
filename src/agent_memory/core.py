@@ -26,7 +26,7 @@ from .context import Context
 from .distiller import DistillerLike, Extraction, RuleDistiller
 from .llm import Client
 from .policy import GENERAL, TASK_PROFILES, MemoryPolicy, detect_profile, score_item
-from .storage import PIN_PRIORITY, MemoryEntry, MemoryStore
+from .storage import PIN_PRIORITY, PROTECTED_KINDS, MemoryEntry, MemoryStore
 from .tokens import estimate_tokens
 
 DEFAULT_MEMORY_CAP_TOKENS = 3000
@@ -118,6 +118,91 @@ class MemoryEngine:
                 existing.touch()
                 return existing
         return None
+
+    # -- the map: structured entry constructors ----------------------------
+
+    def add_entry(
+        self,
+        text: str,
+        kind: str = "fact",
+        tags: Optional[List[str]] = None,
+        priority: float = 1.0,
+        links: Optional[List[str]] = None,
+        stance: str = "",
+        domain: str = "",
+        pinned: bool = False,
+    ) -> MemoryEntry:
+        """Directly add a structured memory entry (bypasses distillation).
+
+        The low-level constructor for the memory-as-map: facts, conclusions,
+        preferences, principles, arguments, perspectives, profile entries — with
+        edges (``links``) to other entries.
+        """
+        entry = MemoryEntry(
+            text=text,
+            kind=kind,
+            tags=tags or [],
+            priority=priority,
+            links=links or [],
+            stance=stance,
+            domain=domain,
+            pinned=pinned,
+        )
+        self.store.add(entry)
+        self.store.save()
+        self.store.write_all_md()
+        return entry
+
+    def add_principle(self, text: str, domain: str = "", priority: float = 1.5) -> MemoryEntry:
+        """Bake in a first principle / axiom — foundational, never evicted."""
+        return self.add_entry(text, kind="principle", domain=domain, priority=priority)
+
+    def add_profile_entry(self, field: str, text: str) -> MemoryEntry:
+        """Add to the user profile. ``field`` ∈ identity|domain|style|constraint|goal."""
+        field = field.lower()
+        if field not in ("identity", "domain", "style", "constraint", "goal"):
+            raise ValueError("profile field must be identity|domain|style|constraint|goal")
+        return self.add_entry(text, kind="profile", tags=[field], priority=1.4)
+
+    def add_argument(self, claim: str, premises: Optional[List[str]] = None,
+                     domain: str = "") -> MemoryEntry:
+        """Record a logical argument: a claim deriving from linked premise entries."""
+        return self.add_entry(
+            text=claim, kind="argument", links=premises or [], domain=domain, priority=1.1
+        )
+
+    def add_perspective(self, question: str, stance: str, reasoning: str,
+                        links: Optional[List[str]] = None) -> MemoryEntry:
+        """Record a viewpoint on an open question (stance: for/against/open).
+
+        Multiple perspectives on the same question can coexist — memory as a
+        map holds conflicting views, not a single forced conclusion.
+        """
+        entry = self.add_entry(
+            text=reasoning, kind="perspective", tags=[question],
+            stance=stance, links=links or [],
+        )
+        return entry
+
+    def link(self, entry_id: str, *other_ids: str) -> None:
+        """Draw edges in the memory graph: entry_id → other entries."""
+        entry = self.store.get(entry_id)
+        if entry is None:
+            raise KeyError(f"no entry {entry_id!r}")
+        entry.link(*other_ids)
+        self.store.save()
+
+    def related(self, entry_id: str) -> List[MemoryEntry]:
+        """Traverse the map: entries linked from ``entry_id`` (resolved, live)."""
+        entry = self.store.get(entry_id)
+        if entry is None:
+            return []
+        out = []
+        for oid in entry.links:
+            other = self.store.get(oid)
+            if other is not None:
+                out.append(other)
+        return out
 
     def process_turn(
         self,
@@ -316,10 +401,23 @@ class MemoryEngine:
 
     @property
     def perspectives_md(self) -> str:
-        return self.store.render_markdown(kinds=["conclusion", "preference"])
+        return self.store.render_markdown(kinds=["conclusion", "preference", "perspective"])
+
+    @property
+    def principles_md(self) -> str:
+        return self.store.render_markdown(kinds=["principle"])
+
+    @property
+    def profile_md(self) -> str:
+        return self.store.render_markdown(kinds=["profile"])
 
     def memory_tokens(self) -> int:
-        return estimate_tokens(self.memory_md) + estimate_tokens(self.perspectives_md)
+        return (
+            estimate_tokens(self.memory_md)
+            + estimate_tokens(self.perspectives_md)
+            + estimate_tokens(self.principles_md)
+            + estimate_tokens(self.profile_md)
+        )
 
     @property
     def entry_count(self) -> int:
@@ -342,12 +440,12 @@ def _pick_victim(
     """Choose the entry to archive first — the retention side of the policy.
 
     ``usage`` (default): the lowest-SCORED entry under the engine's active
-    ``MemoryPolicy``. Pinned entries and decisions (conclusions) are excluded
-    from candidacy. ``oldest``: by age.
+    ``MemoryPolicy``. Pinned entries and the structural foundations
+    (conclusions, principles) are excluded from candidacy. ``oldest``: by age.
     """
-    candidates = [e for e in entries if e.kind != "conclusion" and not e.pinned]
+    candidates = [e for e in entries if e.kind not in PROTECTED_KINDS and not e.pinned]
     if not candidates:
-        return None  # never evict the decisions; pinned are untouchable
+        return None  # never evict the foundations; pinned are untouchable
     if archive_policy == "oldest":
         return min(candidates, key=lambda e: e.updated_at)
 

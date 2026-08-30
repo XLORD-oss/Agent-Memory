@@ -75,10 +75,12 @@ Agent-Memory/
 
 ## 2. The library — module by module
 
-### 2.1 `core.py` — `MemoryEngine` (the orchestrator)
+### 2.1 `core.py` — `MemoryEngine` (the orchestrator + map builder)
 
 Owns the pipeline and holds the engine's runtime state (`_raw_turns`,
 `_prompt_tokens_total`, `_pending_start`). Everything else plugs into it.
+Also builds the memory-as-map: `add_entry`, `add_principle`,
+`add_profile_entry`, `add_argument`, `add_perspective`, `link`, `related`.
 
 ```
 raw turn ─> ingest() ─> distill_pending() ─> merge() ─> archive_if_needed() ─> build_context()
@@ -112,19 +114,23 @@ Human-readable Markdown views are rendered from it.
 
 **`MemoryEntry`** fields:
 ```
-text, kind("fact"|"conclusion"|"preference"), source_turn,
+text, kind("fact"|"conclusion"|"preference"|"principle"|"argument"|
+           "perspective"|"profile"), source_turn,
 created_at, updated_at, tags[], uses, last_used_at,
-priority(1.0 neutral), pinned(bool), id(uuid12)
+priority(1.0 neutral), pinned(bool), links[] (edges), stance (perspective),
+domain, id(uuid12)
 ```
 Behavior: `touch()`, `mark_used()`, `effective_priority()` (pinned → `PIN_PRIORITY=1e12`),
-`token_overlap()` (Jaccard for dedupe + usage).
+`token_overlap()` (Jaccard for dedupe + usage), `link()` (draw edges).
 
 **`MemoryStore`** — file layout:
 ```
 state_dir/
-├── state.json          # machine-readable source of truth (v3, atomic)
-├── memory.md           # rendered facts       (II. Memory)
-├── perspectives.md     # rendered conclusions + preferences
+├── state.json          # machine-readable source of truth (v4, atomic)
+├── memory.md           # facts            (•)
+├── perspectives.md     # conclusions ◆, preferences ★, perspectives ◉ FOR/AGAINST/OPEN
+├── principles.md       # first principles (▲, never evicted)
+├── profile.md          # user profile     (▣ identity/domain/style/constraint/goal)
 └── archive/<era>.md    # evicted entries (append-only, audit trail)
 ```
 

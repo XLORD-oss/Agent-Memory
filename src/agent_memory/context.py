@@ -58,8 +58,11 @@ class Context:
     system: str = SYSTEM_PROMPT
     mode: str = "general"
     policy: MemoryPolicy = field(default_factory=MemoryPolicy)
-    memory: str = ""
-    perspectives: str = ""
+    profile: str = ""            # USER PROFILE (who is working here)
+    principles: str = ""         # FIRST PRINCIPLES (the axioms)
+    memory: str = ""             # MEMORY (facts)
+    perspectives: str = ""       # PERSPECTIVES (conclusions, preferences, viewpoints)
+    arguments: str = ""          # ARGUMENTS (claim + linked premises)
     recent_user_turns: List[str] = field(default_factory=list)
     work_window: List[dict] = field(default_factory=list)
     user_text: str = ""
@@ -75,10 +78,16 @@ class Context:
     @property
     def user_prompt(self) -> str:
         sections: List[str] = []
+        if self.profile.strip():
+            sections.append("USER PROFILE\n" + self.profile.strip())
+        if self.principles.strip():
+            sections.append("FIRST PRINCIPLES\n" + self.principles.strip())
         if self.memory.strip():
             sections.append("MEMORY\n" + self.memory.strip())
         if self.perspectives.strip():
             sections.append("PERSPECTIVES\n" + self.perspectives.strip())
+        if self.arguments.strip():
+            sections.append("ARGUMENTS\n" + self.arguments.strip())
         if self.work_window:
             lines = []
             for t in self.work_window:
@@ -131,7 +140,8 @@ class Context:
             )
             candidates.append(
                 {"kind": e.kind, "text": e.text, "score": score,
-                 "tokens": estimate_tokens(e.text), "entry": e}
+                 "tokens": estimate_tokens(e.text), "entry": e,
+                 "tags": list(e.tags), "stance": e.stance, "links": list(e.links)}
             )
 
         # ---- 2. candidate pool: recent raw turns --------------------------
@@ -172,27 +182,58 @@ class Context:
 
         # ---- 4. render into sections ---------------------------------------
         facts = [c for c in selected if c["kind"] == "fact"]
-        pers = [c for c in selected if c["kind"] in ("conclusion", "preference")]
+        pers = [c for c in selected if c["kind"] in ("conclusion", "preference", "perspective")]
+        princ = [c for c in selected if c["kind"] == "principle"]
+        prof = [c for c in selected if c["kind"] == "profile"]
+        args = [c for c in selected if c["kind"] == "argument"]
         turns = [c for c in selected if c["kind"] in ("user_turn", "assistant_turn")]
 
         if facts:
             lines = []
             for c in sorted(facts, key=lambda c: -c["score"]):
-                marker = "◆" if c["kind"] == "conclusion" else "★" if c["kind"] == "preference" else "•"
-                lines.append(f"- {marker} {c['text']}")
+                lines.append(f"- • {c['text']}")
             ctx.memory = "## Memory\n" + "\n".join(lines)
 
+        if princ:
+            lines = []
+            for c in sorted(princ, key=lambda c: -c["score"]):
+                lines.append(f"- ▲ {c['text']}")
+            ctx.principles = "## First principles\n" + "\n".join(lines)
+
+        if prof:
+            lines = []
+            for c in sorted(prof, key=lambda c: -c["score"]):
+                field = (c.get("tags") or [""])[0] if c.get("tags") else ""
+                prefix = f"**{field.capitalize()}:** " if field else ""
+                lines.append(f"- ▣ {prefix}{c['text']}")
+            ctx.profile = "## User profile\n" + "\n".join(lines)
+
+        if args:
+            lines = []
+            for c in sorted(args, key=lambda c: -c["score"]):
+                lines.append(f"- ⇒ {c['text']}")
+            ctx.arguments = "## Derived claims\n" + "\n".join(lines)
+
         if pers:
-            by_kind = {"## Conclusions": [], "## Preferences": []}
-            for c in pers:
-                if c["kind"] == "conclusion":
-                    by_kind["## Conclusions"].append(c)
-                else:
-                    by_kind["## Preferences"].append(c)
             chunks = []
-            for header in ("## Conclusions", "## Preferences"):
-                if by_kind[header]:
-                    chunks.append(header + "\n" + "\n".join(f"- ◆ {c['text']}" if "Conclusion" in header else f"- ★ {c['text']}" for c in by_kind[header]))
+            grouped = {
+                "## Conclusions": [c for c in pers if c["kind"] == "conclusion"],
+                "## Preferences": [c for c in pers if c["kind"] == "preference"],
+                "## Perspectives": [c for c in pers if c["kind"] == "perspective"],
+            }
+            for header in ("## Conclusions", "## Preferences", "## Perspectives"):
+                group = grouped[header]
+                if not group:
+                    continue
+                lines = []
+                for c in group:
+                    if header == "## Perspectives":
+                        stance = (c.get("stance") or "").strip().upper()
+                        label = f"**{stance}** " if stance in ("FOR", "AGAINST", "OPEN") else ""
+                        lines.append(f"- ◉ {label}{c['text']}")
+                    else:
+                        lines.append(f"- {c['text']}")
+                chunks.append(header + "\n" + "\n".join(lines))
             ctx.perspectives = "\n\n".join(chunks)
 
         if turns:

@@ -55,6 +55,27 @@ Two properties fall out of the design:
 * **Memory is human-readable.** It's Markdown, not a black box — read it, correct
   it, trust it.
 
+**Memory as a map** ([docs/map.md](docs/map.md)) — not a flat list, a
+navigable graph:
+
+| Kind | Sym | Meaning |
+|---|---|---|
+| profile | ▣ | user profile — identity / domain / style / constraints (always in context) |
+| principle | ▲ | first principles / axioms — **never evicted** |
+| fact | • | durable knowledge |
+| conclusion | ◆ | settled decisions — **never evicted** |
+| argument | ⇒ | claims derived from linked premises |
+| perspective | ◉ | for/against/open viewpoints on open questions, with links |
+
+```python
+eng.add_profile_entry("domain", "chaos theory, predictability, three-body problem")
+eng.add_principle("Forecast skill is bounded by initial-condition uncertainty.")
+eng.add_argument("Ensemble mean beats control — it filters unstable directions.",
+                 premises=[lorenz.id, benettin.id])
+eng.add_perspective("Use Postgres?", "against", "ops burden for a single-user setup.")
+eng.link(claim.id, premise.id)     # edges — the map is traversable
+```
+
 **Unified policy** ([docs/unified.md](docs/unified.md)) — one scoring function
 drives both what enters context and what stays in memory:
 

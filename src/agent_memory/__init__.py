@@ -14,6 +14,7 @@ Key modules:
 * ``llm``               — OpenAI-compatible client + offline mock of failure modes.
 """
 
+from .analysis import TraceAnalyzer, compare_policies, demo_trace, load_trace
 from .core import MemoryEngine
 from .distiller import Extraction, LLMDistiller, RuleDistiller
 from .llm import MockModel, OpenAICompatClient
@@ -42,6 +43,10 @@ __all__ = [
     "CODING",
     "RESEARCH",
     "WRITING",
+    "TraceAnalyzer",
+    "compare_policies",
+    "load_trace",
+    "demo_trace",
     "detect_profile",
     "estimate_tokens",
     "full_history_total_tokens",

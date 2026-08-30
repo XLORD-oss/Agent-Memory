@@ -131,6 +131,10 @@ python -m benchmarks.sycophancy.run_flipflop --model gpt-4o-mini --rounds 4
 
 # 3. Token cost: the O(T²) vs O(T) table, no model needed
 python -m benchmarks.token_cost.model
+
+# 4. Analyze YOUR usage: replay a real chat log through any policy, offline
+python -m agent_memory.analysis --trace logs/session.jsonl --compare
+python -m agent_memory.analysis --trace demo --repeat 5 --plot cost.png
 ```
 
 Every benchmark is built on a **published methodology** (Chroma's focused-vs-full

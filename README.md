@@ -55,17 +55,31 @@ Two properties fall out of the design:
 * **Memory is human-readable.** It's Markdown, not a black box — read it, correct
   it, trust it.
 
-**Modes** ([docs/modes.md](docs/modes.md)) — one mode for every situation is the
-design sin this avoids:
+**Unified policy** ([docs/unified.md](docs/unified.md)) — one scoring function
+drives both what enters context and what stays in memory:
 
-| Axis | Mode | What it does |
-|---|---|---|
-| Presentation | `minimal` | Fresh-chat contract (default) — memory + perspectives + recent user turns only |
-| Presentation | `task` | Adds a *bounded* verbatim working-memory window for code / derivations / edits — the one deliberate exception to the fresh-chat rule |
-| Learning | `usage-weighted` | **Memory as a learned cache**: tracks which entries your answers actually reference (zero API cost), protects used entries from eviction, archives the unused first. `engine.usage_report()` shows the real footprint |
-| Learning | `passive` | Explicit distillation only (current default behavior) |
+```python
+value = kind_weight · (priority_weight·priority
+                       + usage_weight·log(1+uses)
+                       + recency_weight·decay(age)
+                       + affinity_weight·task_affinity)
+```
 
-Every mode keeps the anti-rot core: the full raw transcript is never replayed.
+Context is a budget, filled highest-value-first. Fresh-chat is just the policy
+where `assistant_turn = 0` (raw replies never score); coding working-memory is
+the policy where it's `0.9`. Everything is a weight, so it's fully tunable:
+
+```python
+eng.set_policy_profile("coding")      # presets: general | coding | research | writing
+eng.build_context(msg, profile="auto")# or auto-detect from the message
+eng.set_priority(entry_id, 10.0)      # explicit priority on a fact
+eng.prioritize("fastapi", 10.0)       # remember a topic stronger
+eng.pin(entry_id)                     # unbounded priority — never evicted
+eng.set_policy(MemoryPolicy(...))     # full custom vector (first principles)
+```
+
+The old `minimal`/`task` modes remain as sugar for the presets. Every policy
+keeps the anti-rot core: the full raw transcript is never replayed.
 
 ## What we claim (and don't)
 

@@ -28,6 +28,10 @@ ENTRY_KINDS = ("fact", "conclusion", "preference")
 
 _SAFE_ID = re.compile(r"[^a-z0-9_-]+")
 
+# Priority value for pinned entries — effectively unbounded, so they always win
+# the context budget and are never evicted while memory is being trimmed.
+PIN_PRIORITY = 1e12
+
 
 def _now() -> str:
     return datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
@@ -45,6 +49,8 @@ class MemoryEntry:
     tags: List[str] = field(default_factory=list)
     uses: int = 0
     last_used_at: str = ""
+    priority: float = 1.0
+    pinned: bool = False
     id: str = ""
 
     def __post_init__(self) -> None:
@@ -67,6 +73,12 @@ class MemoryEntry:
         """Record that the model referenced this entry in an answer."""
         self.uses += 1
         self.last_used_at = _now()
+
+    def effective_priority(self) -> float:
+        """Pinned entries are effectively unbounded priority."""
+        import sys
+
+        return float(sys.maxsize) if self.pinned else self.priority
 
     def token_overlap(self, other: "MemoryEntry") -> float:
         """Token-set Jaccard similarity; used for rule-based dedupe/merge."""
@@ -116,7 +128,7 @@ class MemoryStore:
 
     def save(self) -> None:
         """Atomic write (tmp file + rename) to avoid corrupting memory on crash."""
-        payload = {"version": 2, "entries": [e.to_dict() for e in self._entries]}
+        payload = {"version": 3, "entries": [e.to_dict() for e in self._entries]}
         tmp = self.state_path.with_suffix(".json.tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2, sort_keys=True)

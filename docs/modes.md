@@ -1,4 +1,13 @@
-# Modes: optimizing what the model sees and what it keeps
+# Modes — development history
+
+> **Superseded.** The modes described here are now **presets of one unified
+> scoring policy** — see [`docs/unified.md`](unified.md) for the first-principles
+> design. `mode="minimal"` ↔ `general`, `mode="task"` ↔ `coding` remain as sugar;
+> everything else is a weight on the vector.
+
+The unification: both axes below are the **same scoring function** applied to
+selection (context) and retention (memory). These pages record the original
+design of each axis for reference.
 
 One mode for every situation is the design sin this framework avoids. There are
 two independent axes, and conflating them is where naive "context optimization"

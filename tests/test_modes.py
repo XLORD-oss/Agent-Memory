@@ -110,13 +110,18 @@ def test_task_mode_default_window_and_system_unchanged():
     assert ctx.prompt_tokens > 0
 
 
-def test_invalid_mode_rejected():
+def test_invalid_profile_rejected():
     eng = _engine()
     try:
-        eng.build_context("x", mode="deep")
+        eng.set_policy_profile("deep")
         assert False, "should have raised"
     except ValueError:
         pass
+    # Custom policy object is always allowed (full customization surface).
+    from agent_memory import MemoryPolicy
+
+    eng.set_policy(MemoryPolicy(kind_weights={"assistant_turn": 0.5}))
+    assert eng.policy.kind_weights["assistant_turn"] == 0.5
 
 
 # --- persistence / backward compat ------------------------------------------

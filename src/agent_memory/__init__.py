@@ -17,6 +17,7 @@ Key modules:
 from .core import MemoryEngine
 from .distiller import Extraction, LLMDistiller, RuleDistiller
 from .llm import MockModel, OpenAICompatClient
+from .policy import GENERAL, CODING, RESEARCH, WRITING, MemoryPolicy, TASK_PROFILES, detect_profile
 from .storage import MemoryEntry, MemoryStore
 from .tokens import (
     compact_total_tokens,
@@ -35,6 +36,13 @@ __all__ = [
     "LLMDistiller",
     "MockModel",
     "OpenAICompatClient",
+    "MemoryPolicy",
+    "TASK_PROFILES",
+    "GENERAL",
+    "CODING",
+    "RESEARCH",
+    "WRITING",
+    "detect_profile",
     "estimate_tokens",
     "full_history_total_tokens",
     "compact_total_tokens",

@@ -25,7 +25,8 @@ from typing import List, Optional
 from .context import Context
 from .distiller import DistillerLike, Extraction, RuleDistiller
 from .llm import Client
-from .storage import MemoryEntry, MemoryStore
+from .policy import GENERAL, TASK_PROFILES, MemoryPolicy, detect_profile, score_item
+from .storage import PIN_PRIORITY, MemoryEntry, MemoryStore
 from .tokens import estimate_tokens
 
 DEFAULT_MEMORY_CAP_TOKENS = 3000
@@ -48,17 +49,21 @@ class MemoryEngine:
         recent_window: int = DEFAULT_RECENT_WINDOW,
         archive_policy: str = "usage",
         usage_threshold: float = 0.4,
+        policy: Optional[MemoryPolicy] = None,
     ) -> None:
         self.store = store or MemoryStore(state_dir)
         self.distiller = distiller or RuleDistiller()
         self.memory_cap_tokens = memory_cap_tokens
         self.recent_window = recent_window
-        # "usage" archives least-referenced entries first (memory as a learned
-        # cache); "oldest" archives by age (previous behavior).
+        # "usage" archives least-valued entries first (scored by the active
+        # policy); "oldest" archives by age (previous behavior).
         self.archive_policy = archive_policy
         # Fraction of an entry's tokens that must appear in an answer for the
         # entry to count as "used". Zero API cost: pure token overlap.
         self.usage_threshold = usage_threshold
+        # The unified scoring policy: drives BOTH context selection and
+        # retention. Defaults to the fresh-chat "general" profile.
+        self.policy: MemoryPolicy = policy if policy is not None else GENERAL
 
         # Audit log of raw turns (kept for accountability, never replayed).
         self._raw_turns: List[dict] = []
@@ -184,26 +189,104 @@ class MemoryEngine:
         return list(self._raw_turns[-n:])
 
     def build_context(
-        self, user_text: str = "", mode: str = "minimal", task_window: int = 8
+        self,
+        user_text: str = "",
+        mode: Optional[str] = None,
+        profile: str = "general",
+        policy: Optional["MemoryPolicy"] = None,
+        task_window: Optional[int] = None,
+        budget: Optional[int] = None,
     ) -> Context:
-        """Assemble a prompt in the given presentation mode (minimal | task)."""
-        if mode not in ("minimal", "task"):
-            raise ValueError(f"unknown context mode {mode!r} (choose 'minimal' or 'task')")
-        ctx = Context.build(self, user_text, mode=mode, task_window=task_window)
+        """Assemble a prompt under the unified memory policy.
+
+        ``profile`` picks a preset policy ("general" | "coding" | "research" |
+        "writing" | "auto"). ``policy`` overrides with a fully custom
+        ``MemoryPolicy`` (the first-principles customization surface). ``mode``
+        is legacy sugar: ``"minimal"`` → general profile, ``"task"`` → the
+        coding profile's working memory. ``task_window`` and ``budget`` override
+        the policy's defaults.
+        """
+        if mode is not None:  # legacy sugar
+            profile = "coding" if mode == "task" else "general"
+        if profile == "auto":
+            probe = user_text
+            if not probe and self._raw_turns:
+                probe = self._raw_turns[-1]["user"] or ""
+            profile = detect_profile(probe)
+        ctx = Context.build(
+            self,
+            user_text,
+            profile=profile,
+            policy=policy,
+            task_window=task_window,
+            budget=budget,
+        )
         self._prompt_tokens_total += ctx.prompt_tokens
         return ctx
+
+    # -- priorities (the customization surface) ------------------------------
+
+    def set_policy(self, policy: "MemoryPolicy") -> None:
+        """Swap the scoring policy (drives context selection AND retention)."""
+        self.policy = policy
+
+    def set_policy_profile(self, profile: str) -> None:
+        """Swap to a named preset: general | coding | research | writing."""
+        if profile not in TASK_PROFILES:
+            raise ValueError(f"unknown profile {profile!r}; choose from {sorted(TASK_PROFILES)}")
+        self.policy = TASK_PROFILES[profile]
+
+    def set_priority(self, entry_id: str, priority: float) -> None:
+        """Explicit priority for an entry (1.0 neutral, >1 boosted).
+
+        The strongest knob: a priority-10 fact beats a fresh priority-1 fact
+        for context budget and eviction, regardless of age.
+        """
+        entry = self.store.get(entry_id)
+        if entry is None:
+            raise KeyError(f"no entry {entry_id!r}")
+        entry.priority = max(0.0, float(priority))
+        self.store.save()
+
+    def prioritize(self, text_contains: str, priority: float) -> int:
+        """Set priority on every entry whose text contains ``text_contains``.
+
+        Convenience for "remember *this topic* stronger": returns the number of
+        entries adjusted.
+        """
+        n = 0
+        for e in self.store.all():
+            if text_contains.lower() in e.text.lower():
+                e.priority = max(0.0, float(priority))
+                n += 1
+        if n:
+            self.store.save()
+        return n
+
+    def pin(self, entry_id: str) -> None:
+        """Pin an entry: unbounded priority — always in context, never evicted."""
+        entry = self.store.get(entry_id)
+        if entry is None:
+            raise KeyError(f"no entry {entry_id!r}")
+        entry.pinned = True
+        self.store.save()
+
+    def unpin(self, entry_id: str) -> None:
+        entry = self.store.get(entry_id)
+        if entry is None:
+            raise KeyError(f"no entry {entry_id!r}")
+        entry.pinned = False
+        self.store.save()
 
     # -- archiving ----------------------------------------------------------
 
     def archive_if_needed(self, policy: Optional[str] = None) -> int:
         """Evict entries while active memory exceeds the cap.
 
-        ``policy="usage"`` (default) archives least-referenced entries first —
-        decisions (conclusions) and recently-used entries are protected, so the
-        memory that survives is the memory the model actually draws on. This is
-        the "learned cache" behavior.
-
-        ``policy="oldest"`` archives by age (the previous behavior).
+        ``policy="usage"`` (default) archives the least-VALUED entries first,
+        scored by the active ``self.policy`` (priority + usage + recency +
+        task affinity). Pinned entries and decisions (conclusions) survive.
+        ``policy="oldest"`` archives by age.
 
         Returns the number of entries archived this call.
         """
@@ -213,7 +296,7 @@ class MemoryEngine:
             entries = list(self.store.all())
             if not entries:
                 break
-            victim = _pick_victim(entries, policy=policy)
+            victim = _pick_victim(entries, engine=self, archive_policy=policy)
             if victim is None:
                 break
             n = self.store.archive_entries([victim.id])
@@ -251,16 +334,35 @@ class MemoryEngine:
         return self._prompt_tokens_total
 
 
-def _pick_victim(entries: List[MemoryEntry], policy: str = "usage") -> Optional[MemoryEntry]:
-    """Choose the entry to archive first.
+def _pick_victim(
+    entries: List[MemoryEntry],
+    engine: Optional["MemoryEngine"] = None,
+    archive_policy: str = "usage",
+) -> Optional[MemoryEntry]:
+    """Choose the entry to archive first — the retention side of the policy.
 
-    ``usage``: least-referenced first; never evict decisions (conclusions);
-    recently-used entries ride out the pressure. ``oldest``: by age.
+    ``usage`` (default): the lowest-SCORED entry under the engine's active
+    ``MemoryPolicy``. Pinned entries and decisions (conclusions) are excluded
+    from candidacy. ``oldest``: by age.
     """
-    candidates = [e for e in entries if e.kind != "conclusion"]
+    candidates = [e for e in entries if e.kind != "conclusion" and not e.pinned]
     if not candidates:
-        return None  # never evict the decisions themselves
-    if policy == "oldest":
+        return None  # never evict the decisions; pinned are untouchable
+    if archive_policy == "oldest":
         return min(candidates, key=lambda e: e.updated_at)
-    # usage: lowest uses first; tie-break by age (older goes first).
-    return min(candidates, key=lambda e: (e.uses, e.updated_at))
+
+    if engine is not None:
+        current_turn = engine.raw_turn_count
+
+        def score(e: MemoryEntry) -> float:
+            age = max(0, current_turn - e.source_turn) if e.source_turn else 0
+            affinity = engine.policy.affinity(e.text, e.tags)
+            return score_item(
+                e.text, e.kind, e.effective_priority(), e.uses, age,
+                engine.policy, affinity=affinity,
+            )
+
+        return min(candidates, key=score)
+
+    # Fallback without an engine: lowest priority, then lowest uses, then oldest.
+    return min(candidates, key=lambda e: (e.effective_priority(), e.uses, e.updated_at))

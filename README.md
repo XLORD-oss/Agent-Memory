@@ -55,6 +55,18 @@ Two properties fall out of the design:
 * **Memory is human-readable.** It's Markdown, not a black box — read it, correct
   it, trust it.
 
+**Modes** ([docs/modes.md](docs/modes.md)) — one mode for every situation is the
+design sin this avoids:
+
+| Axis | Mode | What it does |
+|---|---|---|
+| Presentation | `minimal` | Fresh-chat contract (default) — memory + perspectives + recent user turns only |
+| Presentation | `task` | Adds a *bounded* verbatim working-memory window for code / derivations / edits — the one deliberate exception to the fresh-chat rule |
+| Learning | `usage-weighted` | **Memory as a learned cache**: tracks which entries your answers actually reference (zero API cost), protects used entries from eviction, archives the unused first. `engine.usage_report()` shows the real footprint |
+| Learning | `passive` | Explicit distillation only (current default behavior) |
+
+Every mode keeps the anti-rot core: the full raw transcript is never replayed.
+
 ## What we claim (and don't)
 
 | Claim | Status |

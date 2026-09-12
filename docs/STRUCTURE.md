@@ -19,7 +19,7 @@ Agent-Memory/
 ├── README.md                   # front door: problem, idea, claims, quickstart, benchmarks
 │
 ├── src/agent_memory/           # ─── THE LIBRARY (2,100+ lines) ─────────────
-│   ├── __init__.py             # public API surface (21 exports)
+│   ├── __init__.py             # public API surface (26 exports)
 │   ├── core.py                 # MemoryEngine — the orchestrator (pipeline owner)
 │   ├── storage.py              # MemoryEntry + MemoryStore — persistence layer
 │   ├── policy.py               # MemoryPolicy — the unified scoring model
@@ -27,7 +27,8 @@ Agent-Memory/
 │   ├── distiller.py            # DistillerLike / RuleDistiller / LLMDistiller
 │   ├── tokens.py               # token estimation + the O(T²)-vs-O(T) cost model
 │   ├── llm.py                  # Client protocol, OpenAICompatClient, MockModel
-│   └── analysis.py             # TraceAnalyzer + CLI — offline usage measurement
+│   ├── analysis.py             # TraceAnalyzer + CLI — offline usage measurement
+│   └── export.py               # paired SFT data — 2×2 (length × self-replay) training contracts
 │
 ├── benchmarks/                 # ─── THE EXPERIMENTS ────────────────────────
 │   ├── README.md               # index: claim → methodology → experiment
@@ -70,6 +71,7 @@ Agent-Memory/
     ├── running.md              # real-model run commands (OpenRouter etc.)
     ├── results.md              # benchmark results tables (placeholder → fill)
     ├── collaboration.md        # compute/credits budget, whom to approach, authorship rules
+    ├── training.md             # H4: is the memory contract a training variable? design + protocol
     └── roadmap.md              # v0.1 ✓ / v0.2 / v0.3 / v1.0 / research agenda
 ```
 

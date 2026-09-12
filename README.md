@@ -173,6 +173,7 @@ src/agent_memory/       # the library
   tokens.py             #   token estimation + the cost model
   context.py            #   the fresh-chat prompt contract
   llm.py                #   OpenAI-compatible client + offline mock of failure modes
+  export.py             #   paired SFT data: same targets, four context contracts (docs/training.md)
 benchmarks/             # the three experiments (mock or real model)
 docs/                   # claim.md · evidence.md · architecture.md · collaboration.md · roadmap.md
 examples/               # quickstart.py · chat_demo.py
@@ -186,7 +187,7 @@ tests/                  # 30 tests, all offline
 > replaces replay with a compact, curated store — and ships the benchmarks to
 > measure how much that recovers.
 
-More: [docs/evidence.md](docs/evidence.md) · [docs/architecture.md](docs/architecture.md) · [docs/collaboration.md](docs/collaboration.md) (budget, credits, co-authorship) · [docs/roadmap.md](docs/roadmap.md)
+More: [docs/evidence.md](docs/evidence.md) · [docs/architecture.md](docs/architecture.md) · [docs/collaboration.md](docs/collaboration.md) (budget, credits, co-authorship) · [docs/training.md](docs/training.md) (fine-tuning under the contract) · [docs/roadmap.md](docs/roadmap.md)
 
 ## License
 

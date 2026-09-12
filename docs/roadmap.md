@@ -57,7 +57,13 @@ with real models.
 3. **Archive placement.** Where entries land (recently-active vs topic-split)
    measurably changes retrieval; worth an ablation.
 4. **Distillation fidelity.** How much durable information is lost in distill?
-   Tradeoff curve: memory size vs recall vs cost.
+   Tradeoff curve: memory size vs recall vs cost. (Shipped: `benchmarks/fidelity/`.)
+5. **The contract as a training variable (H4).** Fine-tune the same base model
+   on identical targets under `full` / `user_only` / `memory` / `matched`
+   contexts (2×2: length × self-replay), then cross-evaluate every adapter under
+   every test-time format. Decides whether the anti-sycophancy effect can live
+   in the weights or is prompt-format only. Data tool shipped
+   (`agent_memory.export`); design in `docs/training.md`; needs ~50–100 GPU-hours.
 
 ## Non-goals (for now)
 

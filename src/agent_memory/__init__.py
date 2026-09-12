@@ -12,11 +12,13 @@ Key modules:
 * ``distiller``         — rules-based and LLM-based extraction.
 * ``tokens``            — the O(T²) vs O(T) cost model.
 * ``llm``               — OpenAI-compatible client + offline mock of failure modes.
+* ``export``            — paired SFT data: same targets under full / user_only / memory / matched contexts.
 """
 
 from .analysis import TraceAnalyzer, compare_policies, demo_trace, load_trace
 from .core import MemoryEngine
 from .distiller import Extraction, LLMDistiller, RuleDistiller
+from .export import CONDITIONS as SFT_CONDITIONS, SFTExporter
 from .llm import MockModel, OpenAICompatClient
 from .policy import GENERAL, CODING, RESEARCH, WRITING, MemoryPolicy, TASK_PROFILES, detect_profile
 from .storage import MemoryEntry, MemoryStore
@@ -43,6 +45,8 @@ __all__ = [
     "CODING",
     "RESEARCH",
     "WRITING",
+    "SFTExporter",
+    "SFT_CONDITIONS",
     "TraceAnalyzer",
     "compare_policies",
     "load_trace",

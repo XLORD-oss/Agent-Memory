@@ -41,6 +41,7 @@ Agent-Memory/
 │   │   ├── tasks.py            # factual QA items + push-back text
 │   │   └── run_flipflop.py     # the experiment
 │   ├── token_cost/             # the arithmetic table (no model needed)
+│   ├── budget.py               # prices the real-model campaign before you spend (no model needed)
 │   │   └── model.py
 │   └── __init__.py
 │
@@ -68,6 +69,7 @@ Agent-Memory/
     ├── analyze.md              # TraceAnalyzer usage guide
     ├── running.md              # real-model run commands (OpenRouter etc.)
     ├── results.md              # benchmark results tables (placeholder → fill)
+    ├── collaboration.md        # compute/credits budget, whom to approach, authorship rules
     └── roadmap.md              # v0.1 ✓ / v0.2 / v0.3 / v1.0 / research agenda
 ```
 

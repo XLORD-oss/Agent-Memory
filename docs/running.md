@@ -12,6 +12,16 @@ pip install -e .
 # optional: pip install -e ".[llm,plot]"  # for real models + charts
 ```
 
+## Price the campaign first (no model needed)
+
+```bash
+python -m benchmarks.budget                 # default: 3 lengths x 5 seeds x 5 models ≈ $43
+python -m benchmarks.budget --turns 200 1000 --seeds 3 --models openai/gpt-4o
+```
+
+Builds the exact prompts the benchmarks send, counts tokens, prices per model.
+Paste the table into credit applications — see [collaboration.md](collaboration.md).
+
 ## Token-cost (no model needed)
 
 ```bash

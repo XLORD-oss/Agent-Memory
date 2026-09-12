@@ -51,6 +51,16 @@ from benchmarks.common.memory_builder import MarkerDistiller, build_memory_engin
 from benchmarks.context_rot.tasks import generate_transcript, question_for  # noqa: E402
 
 
+def raw_user_prompt(transcript_raw: str, q_text: str) -> str:
+    """The full-transcript condition: everything so far, then the question."""
+    return "TRANSCRIPT (the full conversation so far)\n" + transcript_raw + "\n\nQUESTION\n" + q_text
+
+
+def memory_user_prompt(mem_ctx, q_text: str) -> str:
+    """The compact-memory condition: the assembled memory prompt, then the question."""
+    return mem_ctx.user_prompt + "\n\nQUESTION\n" + q_text
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_model_args(parser)
@@ -84,7 +94,7 @@ def main() -> None:
         q = question_for(fact)
         q_text = render_question(client, fact.id, fact.value, "UNKNOWN", q)
 
-        raw_user = "TRANSCRIPT (the full conversation so far)\n" + transcript.raw + "\n\nQUESTION\n" + q_text
+        raw_user = raw_user_prompt(transcript.raw, q_text)
         raw_resp = client.complete(
             [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": raw_user}]
         )
@@ -99,7 +109,7 @@ def main() -> None:
             )
         )
 
-        mem_user = mem_ctx.user_prompt + "\n\nQUESTION\n" + q_text
+        mem_user = memory_user_prompt(mem_ctx, q_text)
         mem_resp = client.complete(
             [{"role": "system", "content": mem_ctx.system}, {"role": "user", "content": mem_user}]
         )

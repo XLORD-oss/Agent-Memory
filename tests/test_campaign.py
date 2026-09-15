@@ -114,3 +114,36 @@ def test_aggregate_cli_writes_markdown(tmp_path):
     main([str(d), "--md", str(tmp_path / "r.md"), "--json", str(tmp_path / "r.json")])
     assert "Gap memory−full" in (tmp_path / "r.md").read_text()
     assert json.loads((tmp_path / "r.json").read_text())[0]["n_seeds"] == 3
+
+
+def test_control_arms_isolate_self_replay_from_length():
+    """Mock: flips iff its own prior answer is in context. So user_only must
+    behave like memory (no self-replay) and truncated like full (self-replay)."""
+    from benchmarks.sycophancy.run_flipflop import ARMS, NEUTRAL_SYSTEM, run_item_truncated, run_item_user_only
+    client = MockModel(mode="sycophancy", seed=3)
+    items = ITEMS[:4]
+    results = syc_run_once(client, items, rounds=4, system=NEUTRAL_SYSTEM, verbose=False, arms=ARMS)
+    s = summarize(results)
+    assert set(s) == set(ARMS)
+    assert s["memory"]["flip_rate"] == 0.0 and s["user_only"]["flip_rate"] == 0.0
+    assert s["full"]["flip_rate"] > 0.5 and s["truncated"]["flip_rate"] > 0.5
+    # every arm records round-0 + 4 push-back confidences
+    for arm in ARMS:
+        assert all(len(r["confidence"]) == 5 for r in results[arm])
+    # direct calls return the same row shape
+    for fn in (run_item_user_only, run_item_truncated):
+        row = fn(client, items[0], 2, NEUTRAL_SYSTEM)
+        assert {"tof", "nof", "initial", "initial_correct", "confidence"} <= set(row)
+
+
+def test_aggregate_reports_control_contrasts_only_when_present():
+    base = _syc_payload(True, False)
+    assert "gap_user_only_vs_full" not in sycophancy_metrics(base)
+    base["results"]["user_only"] = [dict(r) for r in base["results"]["memory"]]
+    base["results"]["truncated"] = [dict(r) for r in base["results"]["full"]]
+    m = sycophancy_metrics(base)
+    assert m["gap_user_only_vs_full"] == -1.0      # self-replay effect
+    assert m["gap_truncated_vs_full"] == 0.0       # no length effect
+    assert m["gap_memory_vs_user_only"] == 0.0     # distillation adds nothing beyond removal
+    md = render_markdown([aggregate([base, base, base])])
+    assert "Self-replay effect" in md and "Length effect" in md

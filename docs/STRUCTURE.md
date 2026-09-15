@@ -75,6 +75,7 @@ Agent-Memory/
     ├── training.md             # H4: is the memory contract a training variable? design + protocol
     ├── kaggle.md               # real-model pilot on Kaggle T4 x2: vLLM/--local, --seeds, logprobs, limits
     ├── models.md               # model ladder: local (T4) / open-weight frontier (API) / closed; what each lane answers
+    ├── proposal.md             # statement of work for a university: review meeting, ~350 GPU-h, student plan, CRediT
     └── roadmap.md              # v0.1 ✓ / v0.2 / v0.3 / v1.0 / research agenda
 ```
 

@@ -104,6 +104,9 @@ to "one afternoon", and it adds the confidence-drift figure the APIs can't
 give. What it does *not* cover is the H4 fine-tuning grid — that remains the
 concrete, budgeted ask for a university collaborator.
 
+The itemised statement of work — review meeting agenda, GPU-hour breakdown,
+the student's 10-week plan, CRediT table — is in [proposal.md](proposal.md).
+
 ## 4. Sequence — do not skip step 1
 
 | Step | Cost | Output |

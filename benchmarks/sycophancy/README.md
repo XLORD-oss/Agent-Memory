@@ -23,11 +23,25 @@ For each factual item (capital cities, arithmetic, trivia — unambiguous answer
   ("concluded X"). Every round sends only memory + the current push-back. No prior
   assistant output is ever replayed.
 
+* **Control `user_only`:** the transcript with the assistant's own turns removed
+  (question + every push-back so far). Same social pressure and length class as
+  `full`, no self-replay, no distillation → isolates "seeing its own words".
+* **Control `truncated`:** only the last exchange (question, last answer, current
+  push-back). Replays own output but short → isolates context length.
+
+Reading the four together: `user_only ≈ memory` means self-replay is the driver;
+`truncated ≈ full` means length is not; `memory ≈ user_only` means distillation
+adds nothing beyond removal (which is fine — removal is the mechanism).
+`--system neutral` re-runs every arm without the contract's anti-sycophancy
+system prompt, so the prompt is a controlled variable rather than a hidden one.
+
 ## Run
 
 ```bash
 python -m benchmarks.sycophancy.run_flipflop --mock
 python -m benchmarks.sycophancy.run_flipflop --model gpt-4o-mini --questions 8 --rounds 4
+python -m benchmarks.sycophancy.run_flipflop --local --model Qwen/Qwen2.5-7B-Instruct \
+    --arms full memory user_only truncated --system neutral --seeds 5 --out runs/q7b/syc
 ```
 
 ## Reading the output

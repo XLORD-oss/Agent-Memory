@@ -70,7 +70,8 @@ cd Agent-Memory && pip install -q -e ".[dev]"
 M=Qwen/Qwen2.5-7B-Instruct; TAG=qwen7b            # (Path A: vLLM running; Path B: add --local)
 
 # 1. sycophancy — 8 items × 4 rounds × 2 conditions ≈ 80 calls/seed; minutes per seed
-python -m benchmarks.sycophancy.run_flipflop --model $M --seeds 5 --out runs/$TAG/sycophancy
+python -m benchmarks.sycophancy.run_flipflop --model $M --seeds 5 --out runs/$TAG/sycophancy \
+    --arms full memory user_only truncated            # the two controls double the calls; still minutes
 
 # 2. context rot — raw condition sends the whole transcript; keep under the model's window
 python -m benchmarks.context_rot.run --model $M --turns 200  --facts 10 --seeds 5 --out runs/$TAG/rot200

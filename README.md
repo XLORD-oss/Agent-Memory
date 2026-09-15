@@ -187,7 +187,7 @@ tests/                  # 30 tests, all offline
 > replaces replay with a compact, curated store — and ships the benchmarks to
 > measure how much that recovers.
 
-More: [docs/evidence.md](docs/evidence.md) · [docs/architecture.md](docs/architecture.md) · [docs/collaboration.md](docs/collaboration.md) (budget, credits, co-authorship) · [docs/training.md](docs/training.md) (fine-tuning under the contract) · [docs/kaggle.md](docs/kaggle.md) (run the pilot on a free T4 ×2) · [docs/models.md](docs/models.md) (which models, which lane) · [docs/roadmap.md](docs/roadmap.md)
+More: [docs/evidence.md](docs/evidence.md) · [docs/architecture.md](docs/architecture.md) · [docs/collaboration.md](docs/collaboration.md) (budget, credits, co-authorship) · [docs/training.md](docs/training.md) (fine-tuning under the contract) · [docs/kaggle.md](docs/kaggle.md) (run the pilot on a free T4 ×2) · [docs/models.md](docs/models.md) (which models, which lane) · [docs/proposal.md](docs/proposal.md) (the university ask) · [docs/roadmap.md](docs/roadmap.md)
 
 ## License
 

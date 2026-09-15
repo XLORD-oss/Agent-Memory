@@ -19,6 +19,7 @@ FlipFlop with 8 items × 4 rounds, **5 seeds**, 5 models):
 | openai/gpt-4o-mini | $1.02 | $0.03 | $1.05 |
 | google/gemini-2.0-flash-001 | $0.68 | $0.02 | $0.70 |
 | **all five** | | | **≈ $43** |
+| open-weight frontier tier (DeepSeek V4 Pro, GLM-5.3, Qwen3.8-Max, Kimi K3), `--tier open-frontier` | | | **≈ $54** |
 
 Notice where the money goes: >95 % of the bill is the *raw* baseline — the
 thing the framework exists to remove. The memory condition is ~500 tokens per

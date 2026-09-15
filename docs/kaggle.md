@@ -17,9 +17,12 @@ bfloat16** — everything runs in `float16`. That determines the model list:
 | `Qwen/Qwen2.5-7B-Instruct` | fp16 across both cards (~15 GB) | primary pilot model |
 | `meta-llama/Llama-3.1-8B-Instruct` | fp16 across both cards (~16 GB, tight) or AWQ 4-bit on one | second family |
 | `Qwen/Qwen2.5-14B-Instruct-AWQ` / `-GPTQ-Int4` | 4-bit on one card | "does the gap shrink with scale?" |
+| **`Qwen/Qwen3.8-27B`** (dense, Apache 2.0, Aug 2026) | 4-bit via bitsandbytes across both cards (~15 GB); fp16 does **not** fit | the strongest model you will have logprobs for — see `models.md` |
 | `Qwen/Qwen2.5-1.5B-Instruct`, `-3B-Instruct` | trivially | debugging the pipeline in minutes |
 
-Anything above ~14B is not realistic here. That is fine: the hypothesis is about
+Anything above ~30B is not realistic here — the trillion-parameter open-weight
+MoEs (Kimi K3, DeepSeek V4 Pro, GLM-5.3, Qwen3.8-2.4T) need 8×H100-class nodes
+and belong in the API lane (`models.md`). That is fine: the hypothesis is about
 the *contract*, and a 7B family already shows sycophancy and lost-in-the-middle
 strongly (small models show them *more*, which is a limitation to state, not a
 reason to skip).

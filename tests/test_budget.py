@@ -63,3 +63,15 @@ def test_cli_runs_offline_and_reports_every_model():
     assert "local/test" in out and "openai/gpt-4o-mini" in out
     assert "Whole campaign, 2 models" in out
     assert len(ITEMS) >= 2 and all(m in DEFAULT_PRICES for m in ["openai/gpt-4o"])
+
+
+def test_tiers_are_priced_and_open_frontier_is_selectable():
+    from benchmarks.budget import TIERS
+    for tier, models in TIERS.items():
+        assert models and all(m in DEFAULT_PRICES for m in models), tier
+    assert set(TIERS["all"]) == set(TIERS["closed"]) | set(TIERS["local"]) | set(TIERS["open-frontier"])
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(["--tier", "open-frontier", "--turns", "50", "--facts", "3", "--seeds", "1", "--questions", "2", "--rounds", "1"])
+    out = buf.getvalue()
+    assert "moonshotai/kimi-k3" in out and "deepseek/deepseek-v4-pro" in out and "Whole campaign, 4 models" in out

@@ -7,6 +7,7 @@ prices them per model:
     python -m benchmarks.budget                       # default campaign
     python -m benchmarks.budget --turns 200 1000 5000 --seeds 5
     python -m benchmarks.budget --models openai/gpt-4o anthropic/claude-3.5-sonnet
+    python -m benchmarks.budget --tier open-frontier      # DeepSeek V4 Pro, GLM-5.3, Qwen3.8-Max, Kimi K3
     python -m benchmarks.budget --price openai/gpt-4o=2.50:10.00   # override $/M in:out
 
 Why this exists
@@ -48,13 +49,32 @@ from benchmarks.context_rot.tasks import VALUE_POOL, generate_transcript, questi
 from benchmarks.sycophancy.tasks import ITEMS, pushback_text  # noqa: E402
 
 # Rough list prices, USD per million tokens (input, output). Override with --price.
+# Prices drift; these are mid-2026 OpenRouter/vendor list prices at the time of
+# writing. Open-weight ≠ free: the trillion-parameter MoEs below are open
+# weights you *cannot* self-host on hobby hardware, so they are priced as APIs.
 DEFAULT_PRICES: Dict[str, Tuple[float, float]] = {
+    # closed frontier
     "openai/gpt-4o": (2.50, 10.00),
     "openai/gpt-4o-mini": (0.15, 0.60),
     "anthropic/claude-3.5-sonnet": (3.00, 15.00),
     "google/gemini-2.0-flash-001": (0.10, 0.40),
+    # open-weight, self-hostable on 1-2 consumer GPUs (priced as API for comparison)
     "qwen/qwen-2.5-72b-instruct": (0.35, 0.40),
+    "qwen/qwen3.8-27b": (0.20, 0.60),
+    # open-weight frontier MoEs (multi-node H100 class to self-host -> use the API)
+    "deepseek/deepseek-v4-pro": (1.32, 3.96),      # peak; off-peak is half
+    "z-ai/glm-5.3": (1.40, 4.40),
+    "qwen/qwen3.8-max": (2.00, 6.00),
+    "moonshotai/kimi-k3": (3.00, 15.00),
 }
+
+# Named tiers for --tier: price a whole ladder in one command.
+TIERS: Dict[str, List[str]] = {
+    "closed": ["openai/gpt-4o", "openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash-001"],
+    "local": ["qwen/qwen3.8-27b", "qwen/qwen-2.5-72b-instruct"],
+    "open-frontier": ["deepseek/deepseek-v4-pro", "z-ai/glm-5.3", "qwen/qwen3.8-max", "moonshotai/kimi-k3"],
+}
+TIERS["all"] = TIERS["closed"] + TIERS["local"] + TIERS["open-frontier"]
 
 
 @dataclass
@@ -156,7 +176,9 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--rounds", type=int, default=4, help="push-back rounds per item")
     parser.add_argument("--seeds", type=int, default=5, help="independent repeats per setting (for error bars)")
     parser.add_argument("--out-tokens", type=int, default=40, help="assumed reply length per call")
-    parser.add_argument("--models", nargs="+", default=list(DEFAULT_PRICES), help="models to price")
+    parser.add_argument("--models", nargs="+", default=None, help="models to price (default: --tier)")
+    parser.add_argument("--tier", choices=sorted(TIERS), default="all",
+                        help="named model ladder to price when --models is not given")
     parser.add_argument("--price", type=parse_price, action="append", default=[],
                         help="override/add a price: MODEL=IN:OUT ($ per million tokens)")
     args = parser.parse_args(argv)
@@ -164,6 +186,8 @@ def main(argv: List[str] | None = None) -> None:
     prices = dict(DEFAULT_PRICES)
     for model, p in args.price:
         prices[model] = p
+    if args.models is None:
+        args.models = list(TIERS[args.tier])
     unknown = [m for m in args.models if m not in prices]
     if unknown:
         parser.error(f"no price for {unknown}; pass --price MODEL=IN:OUT")

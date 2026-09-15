@@ -17,6 +17,7 @@ pip install -e .
 ```bash
 python -m benchmarks.budget                 # default: 3 lengths x 5 seeds x 5 models ≈ $43
 python -m benchmarks.budget --turns 200 1000 --seeds 3 --models openai/gpt-4o
+python -m benchmarks.budget --tier open-frontier   # DeepSeek V4 Pro, GLM-5.3, Qwen3.8-Max, Kimi K3 ≈ $54
 ```
 
 Builds the exact prompts the benchmarks send, counts tokens, prices per model.

@@ -26,7 +26,7 @@ Agent-Memory/
 │   ├── context.py              # Context — prompt assembly (budget fill)
 │   ├── distiller.py            # DistillerLike / RuleDistiller / LLMDistiller
 │   ├── tokens.py               # token estimation + the O(T²)-vs-O(T) cost model
-│   ├── llm.py                  # Client protocol, OpenAICompatClient, MockModel
+│   ├── llm.py                  # Client protocol, OpenAICompatClient, LocalHFClient, MockModel, score_record
 │   ├── analysis.py             # TraceAnalyzer + CLI — offline usage measurement
 │   └── export.py               # paired SFT data — 2×2 (length × self-replay) training contracts
 │
@@ -43,6 +43,7 @@ Agent-Memory/
 │   │   └── run_flipflop.py     # the experiment
 │   ├── token_cost/             # the arithmetic table (no model needed)
 │   ├── budget.py               # prices the real-model campaign before you spend (no model needed)
+│   ├── aggregate.py            # seed_*.json → tables with paired bootstrap CIs + sign-flip p
 │   │   └── model.py
 │   └── __init__.py
 │
@@ -72,6 +73,7 @@ Agent-Memory/
     ├── results.md              # benchmark results tables (placeholder → fill)
     ├── collaboration.md        # compute/credits budget, whom to approach, authorship rules
     ├── training.md             # H4: is the memory contract a training variable? design + protocol
+    ├── kaggle.md               # real-model pilot on Kaggle T4 x2: vLLM/--local, --seeds, logprobs, limits
     └── roadmap.md              # v0.1 ✓ / v0.2 / v0.3 / v1.0 / research agenda
 ```
 

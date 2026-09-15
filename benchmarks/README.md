@@ -41,5 +41,12 @@ python -m benchmarks.context_rot.run --model gpt-4o-mini --turns 200 --facts 10
 python -m benchmarks.sycophancy.run_flipflop --model gpt-4o-mini --questions 8 --rounds 4
 ```
 
+Open-weights models on your own GPU (no API key): add `--local` to run the model
+in-process with `transformers`, or point `--base-url` at a local vLLM server. Add
+`--seeds N` for a resumable multi-seed sweep, then
+`python -m benchmarks.aggregate runs/<dir>` for tables with paired bootstrap CIs.
+Local backends also record token logprobs → per-round confidence drift.
+Walkthrough for Kaggle's free T4 ×2: [`docs/kaggle.md`](../docs/kaggle.md).
+
 Results land in `runs/*.json` (git-ignored). See each subpackage's README for
 the full methodology and how to read the numbers.

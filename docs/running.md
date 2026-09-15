@@ -22,6 +22,21 @@ python -m benchmarks.budget --turns 200 1000 --seeds 3 --models openai/gpt-4o
 Builds the exact prompts the benchmarks send, counts tokens, prices per model.
 Paste the table into credit applications — see [collaboration.md](collaboration.md).
 
+## Open-weights models on your own GPU (Kaggle T4 x2, Colab, a lab box)
+
+```bash
+# in-process, no server (transformers; float16 on T4)
+python -m benchmarks.sycophancy.run_flipflop --local --model Qwen/Qwen2.5-7B-Instruct --seeds 5 --out runs/qwen7b/syc
+# or a local vLLM server, then talk to it like any OpenAI-compatible endpoint
+python -m benchmarks.context_rot.run --model Qwen/Qwen2.5-7B-Instruct --base-url http://127.0.0.1:8000/v1 --api-key none --seeds 5 --out runs/qwen7b/rot200
+# aggregate all seeds into tables with paired bootstrap CIs
+python -m benchmarks.aggregate runs/qwen7b/syc runs/qwen7b/rot200 --md runs/qwen7b/results.md
+```
+
+`--seeds N` writes one JSON per seed and skips seeds already on disk, so a run
+killed by a session limit resumes. Local backends also record per-token
+logprobs → confidence drift per condition. Full walkthrough: [kaggle.md](kaggle.md).
+
 ## Token-cost (no model needed)
 
 ```bash

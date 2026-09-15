@@ -1,4 +1,4 @@
-.PHONY: install dev test bench-context-rot bench-sycophancy bench-tokens bench-budget export-demo demo
+.PHONY: install dev test bench-context-rot bench-sycophancy bench-tokens bench-budget bench-aggregate export-demo demo
 
 install:
 	pip install -e .
@@ -20,6 +20,9 @@ bench-sycophancy:
 
 bench-budget:
 	python -m benchmarks.budget
+
+bench-aggregate:
+	python -m benchmarks.aggregate runs/sycophancy_flipflop runs/context_rot
 
 export-demo:
 	python -m agent_memory.export --demo --out /tmp/agent-memory-sft

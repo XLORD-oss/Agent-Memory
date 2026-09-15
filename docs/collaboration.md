@@ -94,6 +94,15 @@ remote famous name). Your own department is also an asset: dynamics people
 understand state estimation, and a "memory as data assimilation" framing gets
 you a co-supervisor and a reader, even if the venue is NLP.
 
+## 3½. If you have a free GPU (Kaggle T4 ×2)
+
+The inference pilot needs no money at all: two T4s run 7–14B open models with
+logprobs, and both benchmarks × 5 seeds × two model families fit in ~2–4 hours
+of the 30 h/week quota (`kaggle.md`). That changes step 1 below from "$20–50"
+to "one afternoon", and it adds the confidence-drift figure the APIs can't
+give. What it does *not* cover is the H4 fine-tuning grid — that remains the
+concrete, budgeted ask for a university collaborator.
+
 ## 4. Sequence — do not skip step 1
 
 | Step | Cost | Output |

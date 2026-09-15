@@ -38,13 +38,14 @@ from agent_memory.tokens import estimate_tokens  # noqa: E402
 
 from benchmarks.common.harness import (  # noqa: E402
     Trial,
+    accuracy,
     add_model_args,
-    default_out_path,
     exact_match,
     is_mock,
     make_client,
     print_accuracy_table,
     render_question,
+    seed_plan,
     write_json,
 )
 from benchmarks.common.memory_builder import MarkerDistiller, build_memory_engine  # noqa: E402
@@ -61,15 +62,9 @@ def memory_user_prompt(mem_ctx, q_text: str) -> str:
     return mem_ctx.user_prompt + "\n\nQUESTION\n" + q_text
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    add_model_args(parser)
-    parser.add_argument("--turns", type=int, default=200, help="conversation length in turns")
-    parser.add_argument("--facts", type=int, default=10, help="number of ground-truth facts")
-    args = parser.parse_args()
-
-    client = make_client(args, mock_mode="context_rot")
-    transcript = generate_transcript(args.turns, args.facts, args.seed)
+def run_once(client, turns: int, facts: int, seed: int, verbose: bool = True) -> dict:
+    """One seed: build the transcript + memory, ask every question under both conditions."""
+    transcript = generate_transcript(turns, facts, seed)
 
     # --- build the compact-memory condition --------------------------------
     engine = build_memory_engine(
@@ -124,7 +119,7 @@ def main() -> None:
             )
         )
 
-        if is_mock(client) and client.last_stats:
+        if verbose and is_mock(client) and client.last_stats:
             print(f"  fact {fact.id:>2} raw pos={client.last_stats.get('relative_pos')} "
                   f"len={client.last_stats.get('length_tokens')} found={client.last_stats.get('found')} "
                   f"-> {'hit' if trials[-2].correct else 'miss'}")
@@ -135,16 +130,36 @@ def main() -> None:
     print(f"  raw:    {input_tokens['raw']:,}")
     print(f"  memory: {input_tokens['memory']:,}   ({input_tokens['memory'] / max(1, input_tokens['raw']) * 100:.1f}% of raw)")
 
-    write_json(
-        args.out or default_out_path("context_rot"),
-        {
-            "args": vars(args),
-            "transcript_turns": transcript.turns,
-            "n_facts": transcript.n_facts,
-            "input_tokens": input_tokens,
-            "trials": [t.to_dict() for t in trials],
-        },
-    )
+    return {
+        "transcript_turns": transcript.turns,
+        "n_facts": transcript.n_facts,
+        "summary": {"raw_accuracy": accuracy(trials, "raw"), "memory_accuracy": accuracy(trials, "memory")},
+        "input_tokens": input_tokens,
+        "trials": [t.to_dict() for t in trials],
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_model_args(parser)
+    parser.add_argument("--turns", type=int, default=200, help="conversation length in turns")
+    parser.add_argument("--facts", type=int, default=10, help="number of ground-truth facts")
+    args = parser.parse_args()
+
+    plan = seed_plan(args, "context_rot")
+    if not plan:
+        print("nothing to do — every seed already has a result on disk")
+        return
+
+    client = None
+    for seed, out_path in plan:
+        args.seed = seed
+        if client is None or is_mock(client):
+            client = make_client(args, mock_mode="context_rot")
+        if len(plan) > 1:
+            print(f"\n=== seed {seed} ===")
+        payload = run_once(client, args.turns, args.facts, seed, verbose=len(plan) == 1)
+        write_json(out_path, {"args": vars(args), "seed": seed, **payload})
 
 
 if __name__ == "__main__":

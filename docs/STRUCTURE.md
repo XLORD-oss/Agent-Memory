@@ -32,10 +32,12 @@ Agent-Memory/
 │
 ├── benchmarks/                 # ─── THE EXPERIMENTS ────────────────────────
 │   ├── README.md               # index: claim → methodology → experiment
-│   ├── common/                 # harness, memory_builder, arms registry (register_arm)
-│   ├── baselines/              # collaborator-contributed arms (rolling_summary stub); one module each
+│   ├── common/
 │   │   ├── harness.py          # shared CLI args, client factory, scoring, JSON out
-│   │   └── memory_builder.py   # MarkerDistiller / ConclusionDistiller, engine factory
+│   │   ├── memory_builder.py   # MarkerDistiller / ConclusionDistiller, engine factory
+│   │   └── arms.py             # arm registry: register_arm / get_arm (contributed baselines plug in here)
+│   ├── baselines/              # collaborator-contributed arms, one attributable module each
+│   │   └── rolling_summary.py  # reference stub: paraphrased self-reference vs verbatim replay
 │   ├── context_rot/            # raw transcript vs compact memory (Chroma method)
 │   │   ├── tasks.py            # synthetic long-conversation generator
 │   │   └── run.py              # the experiment

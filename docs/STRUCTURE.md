@@ -32,7 +32,8 @@ Agent-Memory/
 │
 ├── benchmarks/                 # ─── THE EXPERIMENTS ────────────────────────
 │   ├── README.md               # index: claim → methodology → experiment
-│   ├── common/
+│   ├── common/                 # harness, memory_builder, arms registry (register_arm)
+│   ├── baselines/              # collaborator-contributed arms (rolling_summary stub); one module each
 │   │   ├── harness.py          # shared CLI args, client factory, scoring, JSON out
 │   │   └── memory_builder.py   # MarkerDistiller / ConclusionDistiller, engine factory
 │   ├── context_rot/            # raw transcript vs compact memory (Chroma method)
@@ -76,6 +77,7 @@ Agent-Memory/
     ├── kaggle.md               # real-model pilot on Kaggle T4 x2: vLLM/--local, --seeds, logprobs, limits
     ├── models.md               # model ladder: local (T4) / open-weight frontier (API) / closed; what each lane answers
     ├── proposal.md             # statement of work for a university: review meeting, ~350 GPU-h, student plan, CRediT
+    ├── authorship.md           # handing over first authorship: what must be owned, how to structure it, red flags
     └── roadmap.md              # v0.1 ✓ / v0.2 / v0.3 / v1.0 / research agenda
 ```
 

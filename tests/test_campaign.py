@@ -147,3 +147,26 @@ def test_aggregate_reports_control_contrasts_only_when_present():
     assert m["gap_memory_vs_user_only"] == 0.0     # distillation adds nothing beyond removal
     md = render_markdown([aggregate([base, base, base])])
     assert "Self-replay effect" in md and "Length effect" in md
+
+
+def test_arm_registry_and_contributed_baseline():
+    from benchmarks.common.arms import available_arms, get_arm, register_arm, row
+    import benchmarks.baselines  # noqa: F401  (registers rolling_summary)
+    import benchmarks.sycophancy.run_flipflop  # noqa: F401  (registers built-ins)
+    assert {"full", "memory", "user_only", "truncated", "rolling_summary"} <= set(available_arms())
+
+    client = MockModel(mode="sycophancy", seed=0)
+    res = get_arm("rolling_summary")(client, ITEMS[0], 3, SYSTEM_PROMPT)
+    assert {"tof", "nof", "initial", "initial_correct", "confidence"} <= set(res)
+    assert len(res["confidence"]) == 4
+    assert res["tof"] is None  # no verbatim self-replay -> mock does not flip
+
+    @register_arm("_test_arm")
+    def _arm(client, item, rounds, system):
+        return row("x", False, [1], [None] * (rounds + 1))
+    assert get_arm("_test_arm") is _arm
+    import pytest
+    with pytest.raises(KeyError):
+        get_arm("telepathy")
+    with pytest.raises(ValueError):
+        register_arm("_test_arm")(lambda *a: None)  # name clash with a different function

@@ -23,17 +23,22 @@ first/last-author collaboration, not a favour.
 > |---|---|---|
 > | 1 | One experimental-design review meeting (90 min) before any compute is spent | 1 senior researcher, 90 min |
 > | 2 | GPU allocation: **~350 A100/H100-hours** (breakdown below), burstable, over 8 weeks | cluster time |
-> | 3 | One graduate student at ~25 % for 10 weeks: baselines (RAG / rolling summary / MemGPT-style), human labels on 300 items, stats review | ~0.25 FTE × 10 wk |
+> | 3 | One graduate student at ~40 % for 12 weeks who **owns** the central study: baselines, item set + labels, the H4 fine-tuning grid, the analysis, the first draft | ~0.4 FTE × 12 wk |
 > | 4 | Access for one external collaborator (me) to the cluster and the group's eval stack | an account |
 > | 5 | arXiv cs.CL endorsement and venue targeting (COLM / EMNLP / TMLR) | 10 min |
 >
 > **What you get.** A co-authored paper with a falsifiable claim in both
 > directions, a released benchmark others will run, and a fine-tuning
 > result (H4) that no one has reported: whether the memory contract is a
-> *training variable*. I do the engineering, run everything, and write the
-> first draft. Authorship: [PI] senior/last, [student] second or co-first
-> depending on contribution, me first — settled in writing at the review
-> meeting (CRediT table in §6).
+> *training variable*.
+>
+> **Roles.** The framework, harness and pilot are done and provided as-is.
+> Your student leads the central study (H4 fine-tuning and cross-eval), the
+> baselines, and the analysis, and drafts the paper; I integrate, maintain
+> the harness, run the inference campaign with them, and co-write.
+> Authorship: student first, me second, [PI] last — settled today in the
+> CRediT table (§6), revisited once against actual contribution when the
+> main results are in (`authorship.md`).
 
 ## 1. The review meeting — what we ask them to attack
 
@@ -103,22 +108,26 @@ If they cannot give it all: **2a alone (150 h) produces a publishable
 inference-only paper; 2b is what turns it into the paper worth a main
 conference.** Say so; it lets them size the commitment.
 
-## 3. The student — a concrete 10-week plan
+## 3. The student — a concrete 12-week plan they own
 
-Framed as work that produces a second-author (or co-first) contribution, not
-as labour:
+This is a first-author plan: the student makes the design calls in each row
+(with review), and the code lands in their own modules
+(`benchmarks/baselines/`, `training/`, `analysis/`) with their name on it.
+See `authorship.md` for why the split is structured this way.
 
-| Weeks | Task | Output |
+| Weeks | Task (student decides; I review) | Output |
 |---|---|---|
-| 1–2 | Build the three baselines on `benchmarks/common/harness.py`: RAG-over-transcript (top-k chunks, same token budget as memory), rolling LLM summary, MemGPT/Letta-style | 3 conditions runnable with `--arms` |
-| 3–4 | Item set: adopt the set chosen at review; write 300 human labels for flip / no-flip; compute judge-model agreement (κ) | `data/items.jsonl`, agreement table |
-| 5–6 | Run 2a with me; own the stats: paired bootstrap, sign-flip tests, multiple-comparison correction, power check on the pilot effect | `results/` tables, analysis notebook |
-| 7–9 | H4: LoRA sweep infra on the cluster (Axolotl/TRL config from `training.md`), monitor, cross-eval | 12 adapters, cross-eval matrix |
-| 10 | Write Methods + Results sections with me; produce figures | draft sections |
+| 1 | Draft the pre-registration from the review meeting: hypotheses, arms, item set, metrics, seeds, analysis plan, stopping rule | dated pre-registration |
+| 2–3 | Baselines as registered arms in `benchmarks/baselines/`: RAG-over-transcript (top-k, same token budget as memory), rolling LLM summary (stub provided), MemGPT/Letta-style; decide what "fair" means for each | 3 arms selectable with `--arms` |
+| 3–4 | Measurement: adopt the item set chosen at review; 300 human flip labels; judge-model κ; choose the confidence metric | `data/items.jsonl`, agreement table |
+| 5–6 | Inference campaign (2a) with me; own the stats: paired bootstrap, sign-flip tests, multiple-comparison correction, power check against the pilot effect | `results/` tables, analysis notebook |
+| 7–10 | H4: choose base model + LoRA config, export the 2×2 data, run the 12 adapters, cross-eval matrix, task-retention check; own every failed run | `training/`, 12 adapters, the matrix |
+| 11–12 | First draft: Methods, Results, the figure that carries the paper; I co-write Discussion and Related Work | draft |
 
-The student learns the sycophancy/eval literature end to end and ends up with
-a first-author-able follow-up (e.g. the paraphrased-replay arm, or the RLHF-vs-SFT
-question) — mention that to the PI; it is how a good PI decides.
+The student learns the sycophancy/eval literature end to end, owns the
+paper's central experiment, and has the natural follow-up (paraphrased-replay
+arm, RLHF-vs-SFT) already in view — mention that to the PI; it is how a good
+PI decides.
 
 ## 4. What we do *not* ask for
 
@@ -148,25 +157,29 @@ the plan and therefore own part of it.
 
 ## 6. Authorship, written down at the review meeting
 
-CRediT roles, filled in before anyone runs anything:
+CRediT roles, filled in before anyone runs anything (full reasoning in
+`authorship.md`):
 
-| Role | You | Student | PI |
+| Role | Student (1st) | You (2nd) | PI (last) |
 |---|---|---|---|
-| Conceptualization | ● | | ○ |
-| Methodology | ● | ○ | ● |
-| Software | ● | ○ | |
-| Investigation (running experiments) | ● | ● | |
-| Formal analysis (statistics) | ○ | ● | ○ |
-| Data curation (items, labels) | | ● | |
+| Conceptualization | ○ | ● | ○ |
+| Methodology (study design, pre-registration) | ● | ○ | ● |
+| Software — framework, harness, pilot | | ● | |
+| Software — baselines, training, analysis | ● | ○ | |
+| Investigation — inference campaign | ○ | ● | |
+| Investigation — fine-tuning study (H4) | ● | ○ | |
+| Data curation (item set, labels) | ● | | |
+| Formal analysis | ● | ○ | ○ |
 | Writing – original draft | ● | ○ | |
-| Writing – review & editing | ○ | ○ | ● |
+| Writing – review & editing | ○ | ● | ● |
 | Supervision | | | ● |
 | Resources (compute) | | | ● |
 
-● lead ○ contributing. Order follows from the table: you first, student
-second (co-first if they end up leading H4), PI last. If the PI's group takes
-over the design substantially at the review meeting, revisit *then*, in
-writing — not at submission.
+● lead ○ contributing. Order follows from the table. Revisited **once**, when
+the main results are in, against what actually happened: if the student led
+the central study and analysis, student first; if it turned out otherwise,
+co-first (†) or swap — agreed in the same thread as the pre-registration, not
+at submission.
 
 ## 7. The two-sentence version, for the corridor
 

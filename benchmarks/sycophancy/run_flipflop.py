@@ -58,6 +58,7 @@ from benchmarks.common.harness import (  # noqa: E402
     seed_plan,
     write_json,
 )
+from benchmarks.common.arms import available_arms, get_arm, register_arm  # noqa: E402
 from benchmarks.common.memory_builder import ConclusionDistiller, build_memory_engine  # noqa: E402
 from benchmarks.sycophancy.tasks import ITEMS, pushback_text  # noqa: E402
 
@@ -83,6 +84,7 @@ def _row(a0: str, item, flips: List[int], confidences: List) -> dict:
             "confidence": confidences}
 
 
+@register_arm("user_only")
 def run_item_user_only(client, item, rounds, system) -> dict:
     """Control: full transcript minus the assistant's own turns.
 
@@ -108,6 +110,7 @@ def run_item_user_only(client, item, rounds, system) -> dict:
     return _row(a0, item, flips, confidences)
 
 
+@register_arm("truncated")
 def run_item_truncated(client, item, rounds, system) -> dict:
     """Control: replays own output but only the LAST exchange (short context).
 
@@ -137,6 +140,7 @@ def run_item_truncated(client, item, rounds, system) -> dict:
     return _row(a0, item, flips, confidences)
 
 
+@register_arm("full")
 def run_item_full_history(client, item, rounds, system) -> dict:
     """All prior assistant answers + user push-backs accumulate in context."""
     messages: List[dict] = [{"role": "system", "content": system}]
@@ -160,6 +164,7 @@ def run_item_full_history(client, item, rounds, system) -> dict:
     return _row(a0, item, flips, confidences)
 
 
+@register_arm("memory")
 def run_item_memory(client, item, rounds, system) -> dict:
     """Only distilled memory + the current push-back; no prior assistant output."""
     engine = build_memory_engine(
@@ -187,12 +192,12 @@ def run_item_memory(client, item, rounds, system) -> dict:
     return _row(a0, item, flips, confidences)
 
 
-RUNNERS = {
-    "full": run_item_full_history,
-    "memory": run_item_memory,
-    "user_only": run_item_user_only,
-    "truncated": run_item_truncated,
-}
+# Built-in arms are registered above; contributed baselines register themselves
+# when ``benchmarks.baselines`` is imported (see benchmarks/common/arms.py).
+try:  # pragma: no cover - optional package
+    import benchmarks.baselines  # noqa: F401
+except ImportError:
+    pass
 
 
 def summarize(results: dict, n_items: int = 0) -> dict:
@@ -220,7 +225,7 @@ def run_once(client, items, rounds, system, verbose=True, arms=("full", "memory"
     for item in items:
         per_arm = {}
         for arm in arms:
-            per_arm[arm] = RUNNERS[arm](client, item, rounds, system)
+            per_arm[arm] = get_arm(arm)(client, item, rounds, system)
             results[arm].append({"item": item.id, **per_arm[arm]})
         if verbose:
             cells = " | ".join(f"{arm} ToF={per_arm[arm]['tof']} NoF={per_arm[arm]['nof']}" for arm in arms)
@@ -251,13 +256,16 @@ def main() -> None:
     add_model_args(parser)
     parser.add_argument("--questions", type=int, default=len(ITEMS), help="how many items to run")
     parser.add_argument("--rounds", type=int, default=4, help="push-back rounds per item")
-    parser.add_argument("--arms", nargs="+", default=["full", "memory"], choices=ARMS,
-                        help="which arms to run (add user_only + truncated for the controlled design)")
+    parser.add_argument("--arms", nargs="+", default=["full", "memory"],
+                        help=f"which arms to run; built-in: {list(ARMS)}; registered: {available_arms()} "
+                             "(add user_only + truncated for the controlled design)")
     parser.add_argument("--system", default="contract", help="'contract' | 'neutral' | literal system prompt, shared by all arms")
     args = parser.parse_args()
 
     items = ITEMS[: args.questions]
     system = SYSTEM_CHOICES.get(args.system, args.system)
+    for arm in args.arms:
+        get_arm(arm)  # fail fast on unknown arms, before loading a model
     plan = seed_plan(args, "sycophancy_flipflop")
     if not plan:
         print("nothing to do — every seed already has a result on disk")

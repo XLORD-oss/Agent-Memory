@@ -141,6 +141,10 @@ Cold email (≈120 words; one paper of theirs, one number of yours, one ask):
 
 ## 5. Co-authorship vs. software citation — the decision rule
 
+(If you intend to hand *first* authorship to the collaborating group, read
+[authorship.md](authorship.md): it has to be backed by ownership of the central
+experiment, and the proposal is structured to make that real.)
+
 They are different transactions; don't trade one for the other.
 
 **Authorship follows intellectual contribution to *that paper*.** In both

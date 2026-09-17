@@ -195,7 +195,7 @@ MkDocs, strict link checking). `make docs` writes static HTML to `site/`.
 > replaces replay with a compact, curated store — and ships the benchmarks to
 > measure how much that recovers.
 
-Start with **[docs/FRAMEWORK.md](docs/FRAMEWORK.md)** — the whole framework in one page, each part marked built / partial / gap.
+Start with **[docs/PROJECT.md](docs/PROJECT.md)** — the whole project in one document (who, why, what exists, what has been shown, what is next) — then **[docs/FRAMEWORK.md](docs/FRAMEWORK.md)**, the framework component by component, each part marked built / partial / gap.
 
 More: [docs/evidence.md](docs/evidence.md) · [docs/architecture.md](docs/architecture.md) · [docs/collaboration.md](docs/collaboration.md) (budget, credits, co-authorship) · [docs/training.md](docs/training.md) (fine-tuning under the contract) · [docs/kaggle.md](docs/kaggle.md) (run the pilot on a free T4 ×2) · [docs/models.md](docs/models.md) (which models, which lane) · [docs/proposal.md](docs/proposal.md) (the university ask) · [docs/authorship.md](docs/authorship.md) · [docs/roadmap.md](docs/roadmap.md)
 

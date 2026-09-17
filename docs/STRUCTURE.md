@@ -69,6 +69,7 @@ Agent-Memory/
 │   └── test_selfbuilding.py    # G1 edge traversal · G2 rich extraction · G3 supersession
 │
 └── docs/                       # ─── KNOWLEDGE BASE ─────────────────────────
+    ├── PROJECT.md              # the whole project: author, problem, timeline, every component, results, plan, limits
     ├── FRAMEWORK.md            # the framework end to end, each part marked built/partial/gap — the verification doc
     ├── claim.md                # the precise, defensible claim (evidence split)
     ├── evidence.md             # citation bank (Chroma, LiM, SYCON, SACD)

@@ -70,6 +70,7 @@ site_dir: site
 nav:
   - Overview:
       - Home: index.md
+      - The whole project (state of play): PROJECT.md
       - The framework (verification doc): FRAMEWORK.md
       - The claim: claim.md
       - Evidence: evidence.md

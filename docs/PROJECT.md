@@ -406,7 +406,18 @@ Reading: `user_only ≈ memory` ⇒ self-replay is the driver; `truncated ≈ fu
 ⇒ length is not; `memory ≈ user_only` ⇒ distillation adds nothing beyond
 removal (fine — removal is the mechanism). Contributed baselines (RAG, rolling
 summary, MemGPT-style) plug in through `register_arm` and are aggregated like
-any other arm.
+any other arm. Every arm logs, per round, the measured input size and how much
+of it is the model's own prior replies, and `aggregate.py` reports the
+`truncated / memory` length-match ratio — so "length-matched" is checked, not
+asserted.
+
+**Open confounds (found in review, not yet fixed — see §21):** the `memory`
+arm's `Concluded: … the answer is <verbatim reply>` line re-introduces the
+round-0 reply as text; the push-back is one sentence repeated; the regex flip
+detector misses value-less capitulations ("you're right"); at temperature 0
+seeds do not vary a real model's output; the context-rot memory arm copies the
+planted marker lines (an oracle-retrieval condition) and cannot lose facts under
+its cap; `exact_match` is substring containment (`17` matches `7`).
 
 ### 16. Results that exist (all offline, all real code, none from a real model)
 
@@ -443,8 +454,17 @@ baseline — the thing the framework removes.
 
 **Mock methodology checks** (not evidence): context rot 25 % raw vs 100 %
 memory; FlipFlop 100 % flip full vs 0 % memory, `user_only` 0 %, `truncated`
-75 % — the pattern the hypothesis predicts, produced by a model built to
-produce it.
+75 %. These numbers are **circular**: the mock flips *iff* an assistant-role
+message is present, so it reproduces the hypothesis by construction. They
+verify that the plumbing runs, nothing more.
+
+**Measured prompt sizes** (every call logs what the model was handed): in the
+mock FlipFlop run the arms average 130 / 121 / 106 / 75 input tokens per
+push-back round for `full` / `memory` / `user_only` / `truncated`, with own
+prior replies as assistant messages making up 11 % of `full` and 0 % of
+`memory` and `user_only`; in context rot at 200 turns the memory arm is 0.12×
+the raw arm (≈ 540 vs ≈ 4 600 tokens per question). The length differences are
+now numbers in the results files rather than assumptions.
 
 ### 17. Verification
 
@@ -511,7 +531,21 @@ nobody has published.
 ### 21. Honest limits
 
 * No real-model number exists anywhere in the repository. Mock results are
-  methodology checks and are labelled as such wherever they appear.
+  methodology checks and are labelled as such wherever they appear — and they
+  are circular by construction (the mock implements the hypothesis).
+* **Known design confounds, logged before the pilot runs:** (1) the FlipFlop
+  `memory` arm carries the verbatim round-0 reply inside a `Concluded:` line —
+  it withholds the assistant *role*, not the assistant *text*; (2) push-back is
+  a single repeated sentence, which reads as a glitch in `user_only`; (3)
+  `is_flip` scores value-less capitulations as holds and both-values replies as
+  holds, with errors correlated with arm verbosity; (4) with a real model at
+  temperature 0, `--seeds` reruns identical prompts — item-level bootstrap or a
+  varied pushback pool is needed; (5) the context-rot memory arm is built from
+  the planted `[[FACT:n]]` markers, i.e. an oracle-retrieval condition, and
+  holds 240 tokens against a 3 000-token cap so it can never lose; (6)
+  `exact_match` is substring containment. Per-arm token logging now quantifies
+  the length side of these; the fixes are the next engineering step and
+  precede any real-model run.
 * The rule distiller sees only explicit phrasings; the LLM distiller is the
   production path and has been exercised only through fixtures.
 * Supersession is conservative by design (subject-overlap ≥ 0.5): a correction

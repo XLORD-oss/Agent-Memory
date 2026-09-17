@@ -44,6 +44,7 @@ from benchmarks.common.harness import (  # noqa: E402
     is_mock,
     make_client,
     print_accuracy_table,
+    prompt_stats,
     render_question,
     seed_plan,
     write_json,
@@ -84,38 +85,47 @@ def run_once(client, turns: int, facts: int, seed: int, verbose: bool = True) ->
     # --- run both conditions over the same questions ------------------------
     trials: list[Trial] = []
     input_tokens = {"raw": 0, "memory": 0}
+    per_call: dict = {"raw": [], "memory": []}  # measured prompt size per question, per arm
 
     for fact in transcript.facts:
         q = question_for(fact)
         q_text = render_question(client, fact.id, fact.value, "UNKNOWN", q)
 
         raw_user = raw_user_prompt(transcript.raw, q_text)
-        raw_resp = client.complete(
-            [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": raw_user}]
-        )
-        input_tokens["raw"] += estimate_tokens(raw_user)
+        raw_messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": raw_user}]
+        raw_resp = client.complete(raw_messages)
+        raw_ps = prompt_stats(raw_messages)
+        input_tokens["raw"] += raw_ps["prompt_tokens"]
+        per_call["raw"].append(raw_ps["prompt_tokens"])
         trials.append(
             Trial(
                 id=fact.id,
                 condition="raw",
                 response=raw_resp,
                 correct=exact_match(raw_resp, fact.value),
-                metadata={"fact_turn": fact.turn, "value": fact.value},
+                metadata={"fact_turn": fact.turn, "value": fact.value,
+                          "prompt_tokens": raw_ps["prompt_tokens"],
+                          "completion_tokens": estimate_tokens(raw_resp),
+                          "fact_relative_position": round(fact.turn / max(1, transcript.turns), 3)},
             )
         )
 
         mem_user = memory_user_prompt(mem_ctx, q_text)
-        mem_resp = client.complete(
-            [{"role": "system", "content": mem_ctx.system}, {"role": "user", "content": mem_user}]
-        )
-        input_tokens["memory"] += estimate_tokens(mem_user)
+        mem_messages = [{"role": "system", "content": mem_ctx.system}, {"role": "user", "content": mem_user}]
+        mem_resp = client.complete(mem_messages)
+        mem_ps = prompt_stats(mem_messages)
+        input_tokens["memory"] += mem_ps["prompt_tokens"]
+        per_call["memory"].append(mem_ps["prompt_tokens"])
         trials.append(
             Trial(
                 id=fact.id,
                 condition="memory",
                 response=mem_resp,
                 correct=exact_match(mem_resp, fact.value),
-                metadata={"fact_turn": fact.turn, "value": fact.value},
+                metadata={"fact_turn": fact.turn, "value": fact.value,
+                          "prompt_tokens": mem_ps["prompt_tokens"],
+                          "completion_tokens": estimate_tokens(mem_resp),
+                          "fact_relative_position": round(fact.turn / max(1, transcript.turns), 3)},
             )
         )
 
@@ -126,14 +136,27 @@ def run_once(client, turns: int, facts: int, seed: int, verbose: bool = True) ->
 
     # --- report ------------------------------------------------------------
     print_accuracy_table(trials, ["raw", "memory"])
-    print("\nInput tokens sent (whole question set):")
-    print(f"  raw:    {input_tokens['raw']:,}")
-    print(f"  memory: {input_tokens['memory']:,}   ({input_tokens['memory'] / max(1, input_tokens['raw']) * 100:.1f}% of raw)")
+    mean = lambda xs: (sum(xs) / len(xs)) if xs else 0.0  # noqa: E731
+    print("\nWhat each arm was actually handed (measured):")
+    print("| Arm | Input tok / question (mean) | min | max | Total input tok |")
+    print("|---|---|---|---|---|")
+    for arm in ("raw", "memory"):
+        xs = per_call[arm]
+        print(f"| {arm} | {mean(xs):,.0f} | {min(xs):,} | {max(xs):,} | {input_tokens[arm]:,} |")
+    ratio = mean(per_call["memory"]) / max(1e-9, mean(per_call["raw"]))
+    print(f"  memory / raw input ratio: {ratio:.3f}  (the length confound: accuracy gaps below are between prompts "
+          f"{1 / max(ratio, 1e-9):.0f}× apart in size — not a like-for-like comparison of *content*)")
 
     return {
         "transcript_turns": transcript.turns,
         "n_facts": transcript.n_facts,
-        "summary": {"raw_accuracy": accuracy(trials, "raw"), "memory_accuracy": accuracy(trials, "memory")},
+        "summary": {
+            "raw_accuracy": accuracy(trials, "raw"),
+            "memory_accuracy": accuracy(trials, "memory"),
+            "raw_prompt_tokens_mean": mean(per_call["raw"]),
+            "memory_prompt_tokens_mean": mean(per_call["memory"]),
+            "memory_to_raw_ratio": ratio,
+        },
         "input_tokens": input_tokens,
         "trials": [t.to_dict() for t in trials],
     }

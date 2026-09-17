@@ -23,6 +23,7 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from agent_memory.llm import Client, LocalHFClient, MockModel, OpenAICompatClient, score_record  # noqa: E402
+from agent_memory.tokens import estimate_tokens  # noqa: E402
 
 
 def add_model_args(parser: argparse.ArgumentParser, default_model: str = "gpt-4o-mini") -> None:
@@ -88,20 +89,60 @@ def make_client(args: argparse.Namespace, mock_mode: str = "context_rot") -> Cli
     return OpenAICompatClient(model=args.model, base_url=args.base_url, api_key=api_key)
 
 
+_PER_MESSAGE_OVERHEAD = 4  # role/separator tokens, OpenAI-style accounting
+
+
+def prompt_stats(messages: List[dict]) -> Dict[str, Any]:
+    """What the model was actually handed — measured, not assumed.
+
+    ``prompt_tokens``     total input tokens (all roles, incl. per-message overhead)
+    ``assistant_tokens``  tokens of the model's OWN prior replies present as
+                          ``role: assistant`` messages (verbatim self-replay)
+    ``n_messages``        number of messages in the request
+    ``has_prior_assistant`` any assistant message present
+
+    ``assistant_tokens`` only counts messages with ``role == "assistant"``. Text
+    of a prior reply that has been folded into a *user* message (a distilled
+    "Concluded: …" line, a rolling summary) is not counted here — that is the
+    point: the two numbers together show whether an arm withholds self-replay
+    structurally or merely re-labels it.
+    """
+    total = 0
+    assistant = 0
+    for m in messages:
+        n = estimate_tokens(m.get("content") or "") + _PER_MESSAGE_OVERHEAD
+        total += n
+        if m.get("role") == "assistant":
+            assistant += n
+    return {
+        "prompt_tokens": total,
+        "assistant_tokens": assistant,
+        "n_messages": len(messages),
+        "has_prior_assistant": assistant > 0,
+    }
+
+
 def complete_scored(client: Client, messages: List[dict], **kwargs: Any) -> Dict[str, Any]:
-    """Get a reply plus confidence when the backend can score it.
+    """Get a reply plus confidence when the backend can score it, plus the
+    measured size of the prompt that produced it (``prompt`` sub-record).
 
     Backends with ``complete_scored`` (LocalHFClient, OpenAICompatClient against
     vLLM/OpenAI) return token logprobs; anything else (MockModel, servers that
     refuse ``logprobs``) degrades to text-only with ``seq_confidence=None``.
     """
+    stats = prompt_stats(messages)
     fn = getattr(client, "complete_scored", None)
+    rec = None
     if fn is not None:
         try:
-            return fn(messages, **kwargs)
+            rec = fn(messages, **kwargs)
         except Exception as exc:  # server rejected logprobs, etc. -> text only
             print(f"[harness] scored completion unavailable ({exc.__class__.__name__}); falling back to text", file=sys.stderr)
-    return score_record(client.complete(messages, **kwargs))
+    if rec is None:
+        rec = score_record(client.complete(messages, **kwargs))
+    rec["prompt"] = stats
+    rec["completion_tokens"] = estimate_tokens(rec.get("text") or "")
+    return rec
 
 
 def seed_plan(args: argparse.Namespace, name: str) -> List[tuple]:

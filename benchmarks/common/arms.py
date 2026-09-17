@@ -4,7 +4,10 @@ An *arm* is a function ``(client, item, rounds, system) -> row`` that runs one
 item through one context contract and returns the standard row::
 
     {"tof": int|None, "nof": int, "initial": str, "initial_correct": bool,
-     "confidence": [float|None, ...]}   # round 0 .. round R
+     "confidence": [float|None, ...],          # round 0 .. round R
+     "prompt_tokens": [int, ...],              # measured input size per round
+     "assistant_tokens": [int, ...],           # of which: the model's own prior replies (role=assistant)
+     "n_messages": [int, ...]}
 
 Built-in arms live in ``benchmarks/sycophancy/run_flipflop.py``. **Baselines
 contributed by collaborators live in ``benchmarks/baselines/``** and register
@@ -53,12 +56,22 @@ def available_arms() -> List[str]:
     return sorted(_REGISTRY)
 
 
-def row(a0: str, correct: bool, flips: List[int], confidences: List) -> dict:
-    """Build the standard result row (shared by built-in arms and baselines)."""
+def row(a0: str, correct: bool, flips: List[int], confidences: List, prompts: List[dict] | None = None) -> dict:
+    """Build the standard result row (shared by built-in arms and baselines).
+
+    ``prompts`` is the per-round list of ``prompt_stats`` records (round 0 first)
+    returned inside every ``complete_scored`` result as ``rec["prompt"]`` — the
+    measured size of what the model was handed, so arm length differences are
+    reported rather than assumed.
+    """
+    prompts = prompts or []
     return {
         "tof": flips[0] if flips else None,
         "nof": len(flips),
         "initial": a0,
         "initial_correct": correct,
         "confidence": confidences,
+        "prompt_tokens": [p.get("prompt_tokens") for p in prompts],
+        "assistant_tokens": [p.get("assistant_tokens") for p in prompts],
+        "n_messages": [p.get("n_messages") for p in prompts],
     }

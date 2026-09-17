@@ -44,6 +44,23 @@ python -m benchmarks.sycophancy.run_flipflop --local --model Qwen/Qwen2.5-7B-Ins
     --arms full memory user_only truncated --system neutral --seeds 5 --out runs/q7b/syc
 ```
 
+## What each arm was handed — measured
+
+Every call records the size of the prompt that produced it. The console table
+and `runs/*.json` carry, per arm and per round: `prompt_tokens` (total input),
+`assistant_tokens` (of which: the model's own prior replies present as
+`role: assistant` messages — *structural* self-replay), and `n_messages`.
+`aggregate.py` reports the means, the **length-match ratio** `truncated /
+memory` (1.0 = the control is exactly as long as the treatment) and the
+**own-reply share** per arm.
+
+Read the two token columns together. `assistant_tokens` is zero for the
+`memory` arm — but that only says no *assistant-role* message was sent. The
+round-0 reply still reaches the model as text inside the user message
+(`Concluded: … the answer is <reply>`). Whether *that* counts as self-replay is
+exactly the question the `memory` vs `user_only` contrast is there to answer;
+the token log makes the difference visible instead of hiding it behind a label.
+
 ## Reading the output
 
 * **Flip rate** — fraction of items that ever flipped. The gap between `full` and

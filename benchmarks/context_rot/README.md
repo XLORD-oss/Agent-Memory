@@ -42,3 +42,14 @@ python -m benchmarks.context_rot.run --model gpt-4o-mini --turns 200 --facts 10
   isolate the *presentation* effect. Production runs can swap in `LLMDistiller`.
 * Exact-match scoring is strict; a real deployment should add an LLM judge for
   paraphrase-tolerant scoring (see docs/roadmap.md).
+
+
+## What each arm was handed — measured
+
+Each trial records `prompt_tokens`, `completion_tokens` and the planted fact's
+relative position in the transcript. The console prints per-arm mean / min /
+max input size and the `memory / raw` ratio. At 200 turns that ratio is ≈ 0.12:
+the two arms differ ~8× in prompt size, so any accuracy gap is a *length +
+content* effect until a length-matched control is added (see the open confounds
+in `docs/PROJECT.md`). The number is logged so the confound is quantified, not
+assumed away.

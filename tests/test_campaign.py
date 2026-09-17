@@ -170,3 +170,81 @@ def test_arm_registry_and_contributed_baseline():
         get_arm("telepathy")
     with pytest.raises(ValueError):
         register_arm("_test_arm")(lambda *a: None)  # name clash with a different function
+
+
+# ---------------------------------------------------------------------------
+# per-arm token logging: measured, not assumed
+# ---------------------------------------------------------------------------
+
+def test_prompt_stats_counts_assistant_messages_only():
+    from benchmarks.common.harness import prompt_stats
+    msgs = [{"role": "system", "content": "s" * 40}, {"role": "user", "content": "u" * 40},
+            {"role": "assistant", "content": "a" * 80}, {"role": "user", "content": "Concluded: " + "a" * 80}]
+    ps = prompt_stats(msgs)
+    assert ps["n_messages"] == 4 and ps["has_prior_assistant"]
+    assert 0 < ps["assistant_tokens"] < ps["prompt_tokens"]
+    # a prior reply folded into a *user* message is not counted as structural self-replay
+    ps2 = prompt_stats([m for m in msgs if m["role"] != "assistant"])
+    assert ps2["assistant_tokens"] == 0 and not ps2["has_prior_assistant"]
+
+
+def test_complete_scored_attaches_prompt_and_completion_sizes():
+    client = MockModel(mode="sycophancy", seed=0)
+    msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "[[QUESTION:1]]\n[[CORRECT:Paris]]\n[[WRONG:London]]\nq"}]
+    rec = complete_scored(client, msgs)
+    assert rec["prompt"]["prompt_tokens"] > 0 and rec["prompt"]["assistant_tokens"] == 0
+    assert rec["completion_tokens"] >= 1
+
+
+def test_every_arm_logs_one_prompt_record_per_round():
+    from benchmarks.sycophancy.run_flipflop import ARMS, NEUTRAL_SYSTEM
+    import benchmarks.baselines  # noqa: F401
+    client = MockModel(mode="sycophancy", seed=0)
+    rounds = 3
+    results = syc_run_once(client, ITEMS[:2], rounds=rounds, system=NEUTRAL_SYSTEM, verbose=False,
+                           arms=ARMS + ("rolling_summary",))
+    for arm, rows in results.items():
+        for r in rows:
+            assert len(r["prompt_tokens"]) == rounds + 1, arm
+            assert len(r["assistant_tokens"]) == rounds + 1, arm
+            assert all(isinstance(t, int) and t > 0 for t in r["prompt_tokens"]), arm
+    # structural self-replay: present in full/truncated, absent in memory/user_only/rolling_summary
+    def share(arm):
+        rows = results[arm]
+        return sum(t for r in rows for t in r["assistant_tokens"][1:]) / sum(t for r in rows for t in r["prompt_tokens"][1:])
+    assert share("full") > 0 and share("truncated") > 0
+    assert share("memory") == 0 and share("user_only") == 0 and share("rolling_summary") == 0
+    # full grows across rounds; truncated and memory do not
+    full0 = results["full"][0]["prompt_tokens"]
+    assert full0[-1] > full0[1]
+    trunc0 = results["truncated"][0]["prompt_tokens"]
+    assert max(trunc0[1:]) - min(trunc0[1:]) <= 8
+
+
+def test_summarize_reports_token_columns_and_aggregate_ratios():
+    from benchmarks.sycophancy.run_flipflop import ARMS, NEUTRAL_SYSTEM
+    client = MockModel(mode="sycophancy", seed=1)
+    results = syc_run_once(client, ITEMS[:3], rounds=2, system=NEUTRAL_SYSTEM, verbose=False, arms=ARMS)
+    s = summarize(results)
+    for arm in ARMS:
+        assert s[arm]["push_prompt_tokens_mean"] > 0 and s[arm]["input_tokens_total"] > 0
+        assert s[arm]["assistant_share"] is not None
+    assert s["memory"]["assistant_share"] == 0.0 and s["full"]["assistant_share"] > 0
+    m = sycophancy_metrics({"args": {"model": "m"}, "results": results})
+    assert "ratio_truncated_tokens_vs_memory" in m and "ratio_memory_tokens_vs_full" in m
+    assert m["full_assistant_share"] > 0 and m["memory_assistant_share"] == 0
+    md = render_markdown([aggregate([{"args": {"model": "m"}, "results": results}] * 2)])
+    assert "Input tok/round (full)" in md and "Length match truncated/memory" in md
+
+
+def test_context_rot_logs_prompt_tokens_per_trial_and_ratio():
+    client = MockModel(mode="context_rot", seed=0)
+    payload = rot_run_once(client, turns=80, facts=4, seed=0, verbose=False)
+    for t in payload["trials"]:
+        assert t["metadata"]["prompt_tokens"] > 0
+        assert 0.0 <= t["metadata"]["fact_relative_position"] <= 1.0
+    s = payload["summary"]
+    assert s["raw_prompt_tokens_mean"] > 3 * s["memory_prompt_tokens_mean"]
+    assert abs(s["memory_to_raw_ratio"] - s["memory_prompt_tokens_mean"] / s["raw_prompt_tokens_mean"]) < 1e-9
+    m = context_rot_metrics(payload)
+    assert m["raw_prompt_tokens"] > m["memory_prompt_tokens"] > 0

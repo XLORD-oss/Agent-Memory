@@ -58,7 +58,7 @@ from benchmarks.common.harness import (  # noqa: E402
     seed_plan,
     write_json,
 )
-from benchmarks.common.arms import available_arms, get_arm, register_arm  # noqa: E402
+from benchmarks.common.arms import available_arms, get_arm, register_arm, row  # noqa: E402
 from benchmarks.common.memory_builder import ConclusionDistiller, build_memory_engine  # noqa: E402
 from benchmarks.sycophancy.tasks import ITEMS, pushback_text  # noqa: E402
 
@@ -78,10 +78,9 @@ def _conf(rec: dict):
     return rec.get("seq_confidence")
 
 
-def _row(a0: str, item, flips: List[int], confidences: List) -> dict:
-    return {"tof": flips[0] if flips else None, "nof": len(flips), "initial": a0,
-            "initial_correct": not is_flip(a0, item.correct, item.wrong) and normalize(item.correct) in normalize(a0),
-            "confidence": confidences}
+def _row(a0: str, item, flips: List[int], confidences: List, prompts: List[dict]) -> dict:
+    correct0 = (not is_flip(a0, item.correct, item.wrong)) and normalize(item.correct) in normalize(a0)
+    return row(a0, correct0, flips, confidences, prompts)
 
 
 @register_arm("user_only")
@@ -99,15 +98,17 @@ def run_item_user_only(client, item, rounds, system) -> dict:
     pushes: List[str] = []
     flips: List[int] = []
     confidences = [_conf(r0)]
+    prompts = [r0["prompt"]]
     for r in range(1, rounds + 1):
         pushes.append(pushback_text(client, item.wrong, item.correct))
         # one user message: the question, then the accumulated push-backs
         user = q + "\n\n" + "\n\n".join(pushes)
         rec = complete_scored(client, [{"role": "system", "content": system}, {"role": "user", "content": user}])
         confidences.append(_conf(rec))
+        prompts.append(rec["prompt"])
         if is_flip(rec["text"], item.correct, item.wrong):
             flips.append(r)
-    return _row(a0, item, flips, confidences)
+    return _row(a0, item, flips, confidences, prompts)
 
 
 @register_arm("truncated")
@@ -124,6 +125,7 @@ def run_item_truncated(client, item, rounds, system) -> dict:
     last = a0
     flips: List[int] = []
     confidences = [_conf(r0)]
+    prompts = [r0["prompt"]]
     for r in range(1, rounds + 1):
         push = pushback_text(client, item.wrong, item.correct)
         messages = [
@@ -135,9 +137,10 @@ def run_item_truncated(client, item, rounds, system) -> dict:
         rec = complete_scored(client, messages)
         last = rec["text"]
         confidences.append(_conf(rec))
+        prompts.append(rec["prompt"])
         if is_flip(rec["text"], item.correct, item.wrong):
             flips.append(r)
-    return _row(a0, item, flips, confidences)
+    return _row(a0, item, flips, confidences, prompts)
 
 
 @register_arm("full")
@@ -152,16 +155,18 @@ def run_item_full_history(client, item, rounds, system) -> dict:
 
     flips = []
     confidences = [_conf(r0)]
+    prompts = [r0["prompt"]]
     for r in range(1, rounds + 1):
         push = pushback_text(client, item.wrong, item.correct)
         messages.append({"role": "user", "content": push})
         rec = complete_scored(client, messages)
         messages.append({"role": "assistant", "content": rec["text"]})
         confidences.append(_conf(rec))
+        prompts.append(rec["prompt"])
         if is_flip(rec["text"], item.correct, item.wrong):
             flips.append(r)
 
-    return _row(a0, item, flips, confidences)
+    return _row(a0, item, flips, confidences, prompts)
 
 
 @register_arm("memory")
@@ -179,6 +184,7 @@ def run_item_memory(client, item, rounds, system) -> dict:
 
     flips = []
     confidences = [_conf(r0)]
+    prompts = [r0["prompt"]]
     for r in range(1, rounds + 1):
         push = pushback_text(client, item.wrong, item.correct)
         ctx = engine.build_context(push)
@@ -186,10 +192,11 @@ def run_item_memory(client, item, rounds, system) -> dict:
         messages[0] = {"role": "system", "content": system}  # same system prompt as the other arms
         rec = complete_scored(client, messages)
         confidences.append(_conf(rec))
+        prompts.append(rec["prompt"])
         if is_flip(rec["text"], item.correct, item.wrong):
             flips.append(r)
 
-    return _row(a0, item, flips, confidences)
+    return _row(a0, item, flips, confidences, prompts)
 
 
 # Built-in arms are registered above; contributed baselines register themselves
@@ -216,8 +223,34 @@ def summarize(results: dict, n_items: int = 0) -> dict:
             "initial_accuracy": sum(1 for r in rows if r.get("initial_correct")) / max(1, len(rows)),
             "mean_confidence_drift": (sum(drift) / len(drift)) if drift else None,
             "n_scored": len(drift),
+            **token_summary(rows),
         }
     return out
+
+
+def token_summary(rows: List[dict]) -> dict:
+    """Measured prompt sizes for one arm, from the per-round ``prompt_tokens`` /
+    ``assistant_tokens`` lists each row carries.
+
+    ``push_prompt_tokens_mean``  mean input tokens per push-back round (round ≥ 1)
+    ``push_prompt_tokens_last``  mean input tokens at the final round (where the
+                                 arms differ most)
+    ``assistant_share``          fraction of push-round input that is the model's
+                                 own prior replies as role=assistant messages
+                                 (structural self-replay); 0 for arms that withhold
+    ``input_tokens_total``       everything sent for this arm across all rounds
+    """
+    push_prompt = [t for r in rows for t in (r.get("prompt_tokens") or [])[1:] if t is not None]
+    push_assist = [t for r in rows for t in (r.get("assistant_tokens") or [])[1:] if t is not None]
+    last = [pt[-1] for r in rows if (pt := r.get("prompt_tokens")) and len(pt) > 1 and pt[-1] is not None]
+    total = sum(t for r in rows for t in (r.get("prompt_tokens") or []) if t is not None)
+    n = len(push_prompt)
+    return {
+        "push_prompt_tokens_mean": (sum(push_prompt) / n) if n else None,
+        "push_prompt_tokens_last": (sum(last) / len(last)) if last else None,
+        "assistant_share": (sum(push_assist) / sum(push_prompt)) if n and sum(push_prompt) else None,
+        "input_tokens_total": total,
+    }
 
 
 def run_once(client, items, rounds, system, verbose=True, arms=("full", "memory")) -> dict:
@@ -242,6 +275,17 @@ def print_summary(summary: dict) -> None:
         drift = f"{s['mean_confidence_drift']:+.3f} (n={s['n_scored']})" if s["mean_confidence_drift"] is not None else "n/a (no logprobs)"
         print(f"| {cond} | {s['flip_rate'] * 100:.0f}% | {tof} | {s['mean_nof']:.2f} | {s['never_flipped']} | "
               f"{s['initial_accuracy'] * 100:.0f}% | {drift} |")
+    print()
+    print("What each arm was actually handed (measured, per push-back round):")
+    print("| Arm | Input tok / round (mean) | Input tok, last round | Own prior replies as assistant msgs | Total input tok |")
+    print("|---|---|---|---|---|")
+    for cond, s in summary.items():
+        mean = f"{s['push_prompt_tokens_mean']:,.0f}" if s.get("push_prompt_tokens_mean") is not None else "—"
+        last = f"{s['push_prompt_tokens_last']:,.0f}" if s.get("push_prompt_tokens_last") is not None else "—"
+        share = f"{s['assistant_share'] * 100:.0f}%" if s.get("assistant_share") is not None else "—"
+        print(f"| {cond} | {mean} | {last} | {share} | {s.get('input_tokens_total', 0):,} |")
+    print("  'own prior replies' counts role=assistant messages only; a prior reply folded into a user")
+    print("  message (a 'Concluded: …' line, a rolling summary) is NOT counted — compare arms on both columns.")
     if "full" in summary and "memory" in summary:
         print(
             f"\nFlip rate: full-history {summary['full']['flip_rate'] * 100:.0f}% vs memory "

@@ -276,5 +276,5 @@ benchmarks/         common (harness, arms registry) · baselines · context_rot 
 docs/               claim · evidence · architecture · unified · map · analyze · running · kaggle · models
                     training · collaboration · proposal · authorship · results (placeholder) · roadmap · FRAMEWORK (this)
 examples/           quickstart · chat_demo · policy_demo · map_demo
-tests/              118 offline tests
+tests/              138 offline tests
 ```

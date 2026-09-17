@@ -166,19 +166,27 @@ See [benchmarks/README.md](benchmarks/README.md).
 ## Repository layout
 
 ```
-src/agent_memory/       # the library
-  core.py               #   MemoryEngine: ingest → distill → merge → archive → context
-  storage.py            #   file-backed memory.md / perspectives.md / archive/
-  distiller.py          #   rules-based + LLM-based extraction
-  tokens.py             #   token estimation + the cost model
-  context.py            #   the fresh-chat prompt contract
-  llm.py                #   OpenAI-compatible client + offline mock of failure modes
+src/agent_memory/       # the library (dependency-free core)
+  core.py               #   MemoryEngine: ingest → distill → merge → track use → retain → assemble
+  storage.py            #   MemoryEntry (graph node) + MemoryStore: state.json, memory/perspectives/principles/profile.md, archive/
+  policy.py             #   MemoryPolicy: ONE scoring function for context and retention; task profiles
+  context.py            #   Context.build: budgeted, link-closed prompt under the fresh-chat contract
+  distiller.py          #   RuleDistiller / LLMDistiller: facts, conclusions, preferences, principles,
+                        #   profile, arguments+premises, perspectives, updates (corrections)
+  tokens.py             #   token estimation + the O(T²) vs O(T) cost model
+  llm.py                #   OpenAI-compatible client, in-process transformers client, offline mock
+  analysis.py           #   replay YOUR chat logs through any policy, offline
   export.py             #   paired SFT data: same targets, four context contracts (docs/training.md)
-benchmarks/             # the three experiments (mock or real model)
-docs/                   # claim.md · evidence.md · architecture.md · collaboration.md · roadmap.md
-examples/               # quickstart.py · chat_demo.py
-tests/                  # 30 tests, all offline
+benchmarks/             # context_rot · sycophancy (4 arms + registry) · fidelity · token_cost · budget · aggregate
+docs/                   # start at docs/FRAMEWORK.md — the whole framework, each part marked built/partial/gap
+examples/               # quickstart · chat_demo · policy_demo · map_demo
+tests/                  # 138 tests, all offline
+scripts/build_docs.py   # builds the documentation site (mkdocs); `make docs`
 ```
+
+**Documentation site.** `pip install -e ".[docs]" && make docs-serve` renders
+everything under `docs/` plus the READMEs as one navigable site (Material for
+MkDocs, strict link checking). `make docs` writes static HTML to `site/`.
 
 ## Evidence in one line
 

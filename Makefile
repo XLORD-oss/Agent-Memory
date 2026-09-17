@@ -1,10 +1,19 @@
-.PHONY: install dev test bench-context-rot bench-sycophancy bench-tokens bench-budget bench-aggregate export-demo demo
+.PHONY: install dev docs docs-serve docs-check test bench-context-rot bench-sycophancy bench-tokens bench-budget bench-aggregate export-demo demo
 
 install:
 	pip install -e .
 
 dev:
-	pip install -e ".[dev]"
+	pip install -e ".[dev,docs]"
+
+docs:
+	python scripts/build_docs.py
+
+docs-serve:
+	python scripts/build_docs.py --serve
+
+docs-check:
+	python scripts/build_docs.py --check
 
 test:
 	python -m pytest

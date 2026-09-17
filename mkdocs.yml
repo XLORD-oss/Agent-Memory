@@ -1,0 +1,100 @@
+site_name: Agent-Memory
+site_description: Compact, policy-scored memory for LLM agents — near-linear token cost, no context rot, less self-anchoring.
+site_url: https://xlord-oss.github.io/Agent-Memory/
+repo_url: https://github.com/XLORD-oss/Agent-Memory
+repo_name: XLORD-oss/Agent-Memory
+edit_uri: edit/arena/01a02e08-agent-memory/docs/
+copyright: MIT License
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+
+# docs_dir is the repo's docs/; README.md and the benchmark READMEs are pulled
+# in by the build script (scripts/build_docs.py) so the site is one tree.
+docs_dir: site_src
+site_dir: site
+
+nav:
+  - Overview:
+      - Home: index.md
+      - The framework (verification doc): FRAMEWORK.md
+      - The claim: claim.md
+      - Evidence: evidence.md
+      - Repository map: STRUCTURE.md
+  - Design:
+      - Architecture: architecture.md
+      - One scoring policy: unified.md
+      - Memory as a map: map.md
+      - Modes (superseded): modes.md
+  - Use it:
+      - Running the benchmarks: running.md
+      - Analyze your own logs: analyze.md
+      - Kaggle T4 pilot: kaggle.md
+      - Which models: models.md
+  - Benchmarks:
+      - Index: benchmarks/index.md
+      - Context rot: benchmarks/context_rot.md
+      - Sycophancy (FlipFlop): benchmarks/sycophancy.md
+      - Memory fidelity: benchmarks/fidelity.md
+      - Token cost: benchmarks/token_cost.md
+      - Results: results.md
+  - Research:
+      - Training under the contract (H4): training.md
+      - Roadmap: roadmap.md
+  - Collaboration:
+      - Compute, credits, co-authorship: collaboration.md
+      - The university ask: proposal.md
+      - Handing over first authorship: authorship.md

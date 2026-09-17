@@ -16,6 +16,8 @@ Agent-Memory/
 ├── conftest.py                 # pytest path setup (repo + src importable without install)
 ├── .gitignore                  # runtime state (.agent-memory/, runs/, *.jsonl, *.png)
 ├── LICENSE                     # MIT
+├── mkdocs.yml                  # documentation site config (Material theme, strict)
+├── scripts/build_docs.py       # assembles README + docs/ + benchmark READMEs → site/ (link-checked)
 ├── README.md                   # front door: problem, idea, claims, quickstart, benchmarks
 │
 ├── src/agent_memory/           # ─── THE LIBRARY (2,100+ lines) ─────────────
@@ -55,7 +57,7 @@ Agent-Memory/
 │   ├── chat_demo.py            # interactive chat loop (mock or real model)
 │   └── policy_demo.py          # unified-policy demonstration (general vs coding)
 │
-├── tests/                      # ─── OFFLINE TEST SUITE (59 tests) ──────────
+├── tests/                      # ─── OFFLINE TEST SUITE (138 tests) ─────────
 │   ├── test_tokens.py          # cost-model arithmetic
 │   ├── test_storage.py         # persistence, markdown, archiving, overlap
 │   ├── test_distiller.py       # rule extraction behaviors
@@ -308,7 +310,7 @@ Prints the O(T²)-vs-O(T) table (`--plot` for the PNG). No model needed.
 | `python -m benchmarks.context_rot.run --model gpt-4o --base-url https://openrouter.ai/api/v1 --api-key KEY` | real model |
 | `python -m agent_memory.analysis --trace my.jsonl --compare` | measure your own logs |
 | `python examples/quickstart.py` / `chat_demo.py` / `policy_demo.py` | demos |
-| `pytest` | 59 offline tests |
+| `pytest` | 138 offline tests |
 
 ---
 

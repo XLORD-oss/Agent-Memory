@@ -1,0 +1,402 @@
+"""File-backed storage for the compact memory.
+
+The source of truth is a JSON index (``state.json``) so the engine can load and
+save atomically. Human-readable Markdown views (``memory.md``, ``perspectives.md``,
+``principles.md``, ``profile.md``, and archives under ``archive/``) are rendered
+from it so the memory stays **auditable and editable by humans** — a deliberate
+design property: the compact memory is not a black box, it is a file you can
+read and correct.
+
+Entry kinds — the "map" structure:
+
+* ``fact``        — a durable piece of knowledge about the user / world.
+* ``conclusion``  — a decision or settled position ("concluded X, confirmed").
+* ``preference``  — a stable user value, goal, or style preference.
+* ``principle``   — a first principle / axiom. Foundational, never evicted.
+* ``argument``    — a logical argument: a claim that derives from linked premises.
+* ``perspective`` — a viewpoint on an open question (stance: for / against / open),
+                    with links to the entries that support or oppose it.
+* ``profile``     — a user-profile fact (tags: identity / domain / style /
+                    constraint / goal) that describes *who is working here*.
+
+Every entry carries optional ``links`` (IDs of related entries) and a ``domain``
+tag, so the store is a **navigable graph**, not just a list.
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import re
+import uuid
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional
+
+ENTRY_KINDS = (
+    "fact", "conclusion", "preference",
+    "principle", "argument", "perspective", "profile",
+)
+
+# Entry kinds that are structurally protected from eviction (the foundations).
+PROTECTED_KINDS = ("conclusion", "principle")
+
+_SAFE_ID = re.compile(r"[^a-z0-9_-]+")
+
+# Priority value for pinned entries — effectively unbounded, so they always win
+# the context budget and are never evicted while memory is being trimmed.
+PIN_PRIORITY = 1e12
+
+_KIND_ICONS: Dict[str, str] = {
+    "fact": "•", "conclusion": "◆", "preference": "★",
+    "principle": "▲", "argument": "⇒", "perspective": "◉", "profile": "▣",
+}
+
+
+def _now() -> str:
+    return datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+@dataclass
+class MemoryEntry:
+    """A single unit of compact memory — a node in the memory graph."""
+
+    text: str
+    kind: str = "fact"
+    source_turn: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+    tags: List[str] = field(default_factory=list)
+    uses: int = 0
+    last_used_at: str = ""
+    priority: float = 1.0
+    pinned: bool = False
+    links: List[str] = field(default_factory=list)  # edge: IDs of related entries
+    stance: str = ""                                 # perspective: for/against/open
+    domain: str = ""                                 # topic domain this belongs to
+    supersedes: List[str] = field(default_factory=list)  # IDs this entry replaced (correction lineage)
+    id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            self.id = uuid.uuid4().hex[:12]
+        if not self.created_at:
+            self.created_at = _now()
+        if not self.updated_at:
+            self.updated_at = _now()
+        if self.kind not in ENTRY_KINDS:
+            raise ValueError(f"kind must be one of {ENTRY_KINDS}")
+        self.text = self.text.strip()
+        if not self.text:
+            raise ValueError("MemoryEntry text must be non-empty")
+
+    def touch(self) -> None:
+        self.updated_at = _now()
+
+    def mark_used(self) -> None:
+        """Record that the model referenced this entry in an answer."""
+        self.uses += 1
+        self.last_used_at = _now()
+
+    def effective_priority(self) -> float:
+        """Pinned entries are effectively unbounded priority."""
+        return PIN_PRIORITY if self.pinned else self.priority
+
+    def link(self, *other_ids: str) -> None:
+        """Add directed edges to other entries (dedup, ignore self)."""
+        for oid in other_ids:
+            if oid and oid != self.id and oid not in self.links:
+                self.links.append(oid)
+
+    def token_overlap(self, other: "MemoryEntry") -> float:
+        """Token-set Jaccard similarity; used for rule-based dedupe/merge."""
+        a = set(_tokenize(self.text))
+        b = set(_tokenize(other.text))
+        if not a or not b:
+            return 0.0
+        return len(a & b) / len(a | b)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "MemoryEntry":
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+
+def _tokenize(text: str) -> List[str]:
+    return re.findall(r"[a-z0-9']+", text.lower())
+
+
+_STOPWORDS = frozenset("""
+a an the and or but not no nor for to of in on at with by from into over under
+is are was were be been being it its this that these those we i you he she they
+our my your their as so do did does done will would should could can may might
+must use using used our own than then there here very just also only actually
+instead now
+""".split())
+
+
+def content_tokens(text: str) -> set:
+    """Tokens that carry the *subject* of a statement (stopwords removed)."""
+    return {t for t in _tokenize(text) if t not in _STOPWORDS and len(t) > 1}
+
+
+def subject_overlap(a: str, b: str) -> float:
+    """How much two statements are *about the same thing*: shared content tokens
+    over the smaller content set. A correction ("the demo is Monday") scores high
+    against its predecessor ("the demo is Friday") even though their Jaccard is
+    low, because they share the subject and differ only in the value."""
+    ca, cb = content_tokens(a), content_tokens(b)
+    if not ca or not cb:
+        return 0.0
+    return len(ca & cb) / min(len(ca), len(cb))
+
+
+def _kind_icon(kind: str) -> str:
+    return _KIND_ICONS.get(kind, "•")
+
+
+def _stance_label(stance: str) -> str:
+    s = (stance or "").strip().lower()
+    if s in ("for", "supports", "pro", "support"):
+        return "FOR"
+    if s in ("against", "opposes", "con", "against"):
+        return "AGAINST"
+    if s in ("open", "undecided", "neutral", "both"):
+        return "OPEN"
+    return s.upper() if s else ""
+
+
+def _short_label(text: str, n: int = 26) -> str:
+    t = text.strip().replace("\n", " ")
+    return t[:n] + ("…" if len(t) > n else "")
+
+
+class MemoryStore:
+    """Loads/saves memory entries to a state directory and renders Markdown views."""
+
+    def __init__(self, state_dir: str | Path = ".agent-memory") -> None:
+        self.root = Path(state_dir)
+        self.archive_dir = self.root / "archive"
+        self.state_path = self.root / "state.json"
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        self._entries: List[MemoryEntry] = []
+        self._load()
+
+    # -- persistence --------------------------------------------------------
+
+    def _load(self) -> None:
+        if self.state_path.exists():
+            with open(self.state_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            self._entries = [MemoryEntry.from_dict(d) for d in data.get("entries", [])]
+        else:
+            self._entries = []
+
+    def save(self) -> None:
+        """Atomic write (tmp file + rename) to avoid corrupting memory on crash."""
+        payload = {"version": 4, "entries": [e.to_dict() for e in self._entries]}
+        tmp = self.state_path.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2, sort_keys=True)
+        os.replace(tmp, self.state_path)
+
+    # -- query --------------------------------------------------------------
+
+    def all(self, kind: Optional[str] = None) -> List[MemoryEntry]:
+        if kind is None:
+            return list(self._entries)
+        return [e for e in self._entries if e.kind == kind]
+
+    def get(self, entry_id: str) -> Optional[MemoryEntry]:
+        for e in self._entries:
+            if e.id == entry_id:
+                return e
+        return None
+
+    # -- mutation -----------------------------------------------------------
+
+    def add(self, entry: MemoryEntry) -> MemoryEntry:
+        self._entries.append(entry)
+        return entry
+
+    def remove(self, entry_id: str) -> bool:
+        before = len(self._entries)
+        self._entries = [e for e in self._entries if e.id != entry_id]
+        return len(self._entries) < before
+
+    def replace(self, entry: MemoryEntry) -> None:
+        for i, e in enumerate(self._entries):
+            if e.id == entry.id:
+                self._entries[i] = entry
+                return
+        self._entries.append(entry)
+
+    def size_bytes(self) -> int:
+        return len(json.dumps([e.to_dict() for e in self._entries]))
+
+    # -- rendering ----------------------------------------------------------
+
+    def render_markdown(self, kinds: Optional[List[str]] = None) -> str:
+        """Render active entries as human-readable Markdown.
+
+        ``kinds=[\"fact\"]`` renders the memory file; the perspectives file is
+        ``kinds=[\"conclusion\",\"preference\",\"perspective\"]``; principles and
+        profile have their own files. Entries render with backlinks when they
+        have outgoing edges, so the file reads as a navigable map.
+        """
+        entries = self._entries
+        if kinds is not None:
+            entries = [e for e in entries if e.kind in kinds]
+
+        headings: Dict[str, str] = {
+            "fact": "## Memory",
+            "conclusion": "## Conclusions",
+            "preference": "## Preferences",
+            "principle": "## First Principles",
+            "argument": "## Arguments",
+            "perspective": "## Perspectives",
+            "profile": "## User Profile",
+        }
+        order = ("fact", "conclusion", "preference",
+                 "principle", "argument", "perspective", "profile")
+
+        lines: List[str] = []
+        for kind in order:
+            group = [e for e in entries if e.kind == kind]
+            if not group:
+                continue
+            lines.append(headings[kind])
+            lines.append("")
+            for e in sorted(group, key=lambda x: x.updated_at):
+                # Perspective stance makes the viewpoint explicit.
+                if e.kind == "perspective":
+                    label = f"**{_stance_label(e.stance)}** {_kind_icon(kind)} {e.text}" if _stance_label(e.stance) else f"{_kind_icon(kind)} {e.text}"
+                else:
+                    label = f"{_kind_icon(kind)} {e.text}"
+                backlinks = self._backlinks(e)
+                if backlinks:
+                    label += f"  → {backlinks}"
+                lines.append(f"- {label}")
+            lines.append("")
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _backlinks(self, entry: MemoryEntry) -> str:
+        """Short human labels for an entry's outgoing edges (the map feel)."""
+        if not entry.links:
+            return ""
+        parts = []
+        for oid in entry.links:
+            other = self.get(oid)
+            if other is not None:
+                parts.append(f"«{_short_label(other.text)}»")
+        return ", ".join(parts) if parts else ""
+
+    def write_memory_md(self) -> Path:
+        path = self.root / "memory.md"
+        path.write_text(self.render_markdown(kinds=["fact"]), encoding="utf-8")
+        return path
+
+    def write_perspectives_md(self) -> Path:
+        path = self.root / "perspectives.md"
+        path.write_text(
+            self.render_markdown(kinds=["conclusion", "preference", "perspective"]),
+            encoding="utf-8",
+        )
+        return path
+
+    def write_principles_md(self) -> Path:
+        path = self.root / "principles.md"
+        path.write_text(self.render_markdown(kinds=["principle"]), encoding="utf-8")
+        return path
+
+    def write_profile_md(self) -> Path:
+        path = self.root / "profile.md"
+        path.write_text(
+            self.render_markdown(kinds=["profile"]),
+            encoding="utf-8",
+        )
+        return path
+
+    def write_all_md(self) -> None:
+        self.write_memory_md()
+        self.write_perspectives_md()
+        self.write_principles_md()
+        self.write_profile_md()
+
+    # -- archiving ----------------------------------------------------------
+
+    def archive_entries(
+        self,
+        entry_ids: List[str],
+        era: Optional[str] = None,
+        reasons: Optional[Dict[str, str]] = None,
+    ) -> int:
+        """Move entries out of the active store into an era-dated archive file.
+
+        Returns the number of entries moved. Archived entries keep their full text
+        (audit trail) but stop consuming active-context tokens. ``reasons`` maps
+        entry id → short note written next to the line (e.g. ``superseded by …``)
+        so the archive says *why* something left, not just that it did.
+        """
+        if era is None:
+            era = datetime.date.today().isoformat()
+        safe_era = _SAFE_ID.sub("-", era.lower()) or "archive"
+        archive_path = self.archive_dir / f"{safe_era}.md"
+        archived: List[MemoryEntry] = []
+        for eid in entry_ids:
+            entry = self.get(eid)
+            if entry is not None:
+                archived.append(entry)
+                self.remove(eid)
+
+        if archived:
+            reasons = reasons or {}
+            with open(archive_path, "a", encoding="utf-8") as fh:
+                fh.write(f"<!-- archived {_now()} -->\n")
+                for e in archived:
+                    why = f"  _({reasons[e.id]})_" if e.id in reasons else ""
+                    fh.write(f"- {_kind_icon(e.kind)} [{e.kind}] {e.text}{why}\n")
+                fh.write("\n")
+        return len(archived)
+
+    def retire(self, old_id: str, successor: MemoryEntry) -> bool:
+        """Supersede ``old_id`` with ``successor``: the successor inherits the
+        predecessor's usage history, links, pin, priority and inbound edges; the
+        predecessor moves to the archive with a pointer to what replaced it.
+
+        This is how a correction ("actually, X not Y") retires the stale
+        statement instead of leaving a contradiction in the active memory —
+        the history is kept, but it is never replayed.
+        """
+        old = self.get(old_id)
+        if old is None or old.id == successor.id:
+            return False
+        # lineage + inherited value
+        if old.id not in successor.supersedes:
+            successor.supersedes.append(old.id)
+        successor.supersedes.extend(x for x in old.supersedes if x not in successor.supersedes)
+        successor.uses = max(successor.uses, old.uses)
+        successor.last_used_at = successor.last_used_at or old.last_used_at
+        successor.priority = max(successor.priority, old.priority)
+        successor.pinned = successor.pinned or old.pinned
+        successor.link(*old.links)
+        if not successor.domain:
+            successor.domain = old.domain
+        for t in old.tags:
+            if t not in successor.tags:
+                successor.tags.append(t)
+        # redirect inbound edges so arguments/perspectives point at the live version
+        for e in self._entries:
+            if old.id in e.links:
+                e.links = [successor.id if x == old.id else x for x in e.links]
+                if e.links.count(successor.id) > 1:
+                    seen = set()
+                    e.links = [x for x in e.links if not (x in seen or seen.add(x))]
+        if self.get(successor.id) is None:
+            self.add(successor)
+        self.archive_entries([old.id], reasons={old.id: f"superseded by «{_short_label(successor.text)}»"})
+        return True

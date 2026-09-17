@@ -1,0 +1,33 @@
+# Citation metadata. GitHub renders this as "Cite this repository" in the sidebar.
+# Fill in the two TODO fields (legal name, ORCID) before pointing anyone at it;
+# a software citation with an unresolvable author is worth very little.
+cff-version: 1.2.0
+message: >-
+  If you use Agent-Memory in research, please cite it as software using the
+  metadata below. If a paper on the framework is published, prefer citing the
+  paper (this file will be updated with a `preferred-citation` block).
+type: software
+title: "Agent-Memory: a compact, policy-scored memory layer for LLM agents"
+abstract: >-
+  Replaces full-transcript replay with a compact, structured, human-readable
+  memory (facts, conclusions, principles, arguments, perspectives, user profile)
+  selected by a single scoring policy for both context assembly and retention.
+  Ships offline benchmarks for token cost, memory fidelity, context rot and
+  sycophancy (FlipFlop / SYCON-style) that run against any OpenAI-compatible model.
+authors:
+  - family-names: "TODO-LEGAL-SURNAME"
+    given-names: "TODO-GIVEN-NAMES"
+    alias: "XLORD-oss"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"   # TODO: free at orcid.org, takes 2 minutes
+version: 0.1.0
+date-released: "2026-09-12"
+license: MIT
+repository-code: "https://github.com/XLORD-oss/Agent-Memory"
+keywords:
+  - llm-agents
+  - memory
+  - context-engineering
+  - context-rot
+  - sycophancy
+  - self-anchoring
+  - token-cost

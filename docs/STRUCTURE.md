@@ -66,6 +66,7 @@ Agent-Memory/
 │   └── test_analysis.py        # trace loaders, analyzer math, CLI
 │
 └── docs/                       # ─── KNOWLEDGE BASE ─────────────────────────
+    ├── FRAMEWORK.md            # the framework end to end, each part marked built/partial/gap — the verification doc
     ├── claim.md                # the precise, defensible claim (evidence split)
     ├── evidence.md             # citation bank (Chroma, LiM, SYCON, SACD)
     ├── architecture.md         # the five-stage pipeline, design properties

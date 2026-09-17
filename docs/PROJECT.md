@@ -349,7 +349,7 @@ never superseded by a one-liner — reasoning is not state.
 
 | Client | Use | Logprobs |
 |---|---|---|
-| `MockModel(mode="context_rot" \| "sycophancy")` | CI and methodology checks; emulates lost-in-the-middle, length rot, flip-under-pressure deterministically. **Its numbers are not evidence.** Runs are labelled `model: "mock"` | no |
+| `MockModel(mode=...)` — modes `context_rot`, `sycophancy` | CI and methodology checks; emulates lost-in-the-middle, length rot, flip-under-pressure deterministically. **Its numbers are not evidence.** Runs are labelled `model: "mock"` | no |
 | `OpenAICompatClient(model, base_url, api_key)` | OpenAI, OpenRouter, vLLM, any compatible server; `complete_scored` requests logprobs | when the server provides them |
 | `LocalHFClient(model, dtype="float16", **from_pretrained_kwargs)` | in-process `transformers`, `device_map="auto"` across GPUs (Kaggle T4 ×2), 4-bit via `quantization_config` | always (`output_scores`) |
 

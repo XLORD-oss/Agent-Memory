@@ -15,7 +15,11 @@ The repo keeps its docs where developers expect them (``README.md``, ``docs/``,
    ``benchmarks/context_rot.md``),
 3. fails if any relative link points at a file that is not in the site — so a
    broken cross-reference breaks the build instead of shipping a 404,
-4. runs ``mkdocs build --strict``.
+4. **lints every page against GitHub-Flavored-Markdown rules** that Python-
+   Markdown tolerates but GitHub, VS Code and most viewers do not (tables that
+   start without a blank line, pipes inside code spans in table cells, fences
+   that never close, ragged table rows) — and fails on any of them,
+5. runs ``mkdocs build --strict``.
 
 Requires ``pip install -e ".[docs]"``.
 """
@@ -88,6 +92,47 @@ def _relpath(target: Path, start: Path) -> str:
     return os.path.relpath(target, start)
 
 
+def lint_gfm(text: str) -> list[str]:
+    """Problems that render fine in Python-Markdown but break in GFM viewers.
+
+    Returns human-readable messages with 1-based line numbers. Kept
+    deliberately small: each rule corresponds to a failure actually seen.
+    """
+    problems: list[str] = []
+    lines = text.splitlines()
+    in_fence = False
+    fence_open_line = 0
+    table_cols = None
+    for i, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            fence_open_line = i if in_fence else 0
+            table_cols = None
+            continue
+        if in_fence:
+            continue
+        if line.startswith("|"):
+            prev = lines[i - 2] if i >= 2 else ""
+            if not prev.startswith("|") and prev.strip():
+                problems.append(f"line {i}: table must be preceded by a blank line (GFM)")
+            cells = line.strip().strip("|").split("|")
+            for c in cells:
+                if c.count("`") % 2:
+                    problems.append(f"line {i}: pipe inside a code span splits the table cell in GFM: {c.strip()[:50]!r}")
+                    break
+            row_cols = len(cells)
+            if table_cols is None:
+                table_cols = row_cols
+            elif row_cols != table_cols and not set(stripped) <= set("|-: "):
+                problems.append(f"line {i}: table row has {row_cols} cells, header has {table_cols}")
+        else:
+            table_cols = None
+    if in_fence:
+        problems.append(f"line {fence_open_line}: code fence never closed")
+    return problems
+
+
 def assemble() -> int:
     if SRC.exists():
         shutil.rmtree(SRC)
@@ -96,6 +141,9 @@ def assemble() -> int:
     problems = 0
     for src, dst in pages.items():
         text = src.read_text(encoding="utf-8")
+        for msg in lint_gfm(text):
+            print(f"[docs] GFM in {src.relative_to(ROOT)}: {msg}", file=sys.stderr)
+            problems += 1
         text, broken = rewrite_links(text, src, dst, pages)
         for b in broken:
             print(f"[docs] BROKEN LINK in {src.relative_to(ROOT)}: {b}", file=sys.stderr)
@@ -119,10 +167,10 @@ def main() -> None:
 
     problems = assemble()
     if problems:
-        print(f"[docs] {problems} broken link(s) — fix them before building.", file=sys.stderr)
+        print(f"[docs] {problems} problem(s) — fix them before building.", file=sys.stderr)
         sys.exit(1)
     if args.check:
-        print("[docs] links OK")
+        print("[docs] links and GFM lint OK")
         return
 
     mkdocs = [sys.executable, "-m", "mkdocs"]

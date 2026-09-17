@@ -65,3 +65,21 @@ def test_site_builds_strict(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     assert (ROOT / "site" / "index.html").exists()
     assert (ROOT / "site" / "FRAMEWORK" / "index.html").exists()
+
+
+def test_every_page_passes_the_gfm_lint():
+    bd = _load_build_docs()
+    problems = []
+    for src in bd.page_map():
+        problems += [(str(src.relative_to(ROOT)), m) for m in bd.lint_gfm(src.read_text(encoding="utf-8"))]
+    assert problems == [], problems
+
+
+def test_gfm_lint_catches_the_known_failure_modes():
+    bd = _load_build_docs()
+    assert bd.lint_gfm("text\n| a | b |\n|---|---|\n") == ["line 2: table must be preceded by a blank line (GFM)"]
+    assert any("code span" in m for m in bd.lint_gfm("\n| `x \\| y` | b |\n|---|---|\n"))
+    assert any("never closed" in m for m in bd.lint_gfm("```python\nprint(1)\n"))
+    assert any("cells" in m for m in bd.lint_gfm("\n| a | b |\n|---|---|\n| 1 | 2 | 3 |\n"))
+    # inside a fence, pipes and tables are ignored
+    assert bd.lint_gfm("```\ntext\n| a | b |\n```\n") == []

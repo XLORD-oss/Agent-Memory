@@ -63,7 +63,8 @@ Agent-Memory/
 │   ├── test_modes.py           # legacy mode sugar (minimal/task) + usage tracking
 │   ├── test_policy.py          # unified scoring: priority/usage/affinity/pin/budget
 │   ├── test_benchmarks.py      # harness + mocks: both experiments offline
-│   └── test_analysis.py        # trace loaders, analyzer math, CLI
+│   ├── test_analysis.py        # trace loaders, analyzer math, CLI
+│   └── test_selfbuilding.py    # G1 edge traversal · G2 rich extraction · G3 supersession
 │
 └── docs/                       # ─── KNOWLEDGE BASE ─────────────────────────
     ├── FRAMEWORK.md            # the framework end to end, each part marked built/partial/gap — the verification doc

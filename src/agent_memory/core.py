@@ -23,10 +23,10 @@ from __future__ import annotations
 from typing import List, Optional
 
 from .context import Context
-from .distiller import DistillerLike, Extraction, RuleDistiller
+from .distiller import DistillerLike, Extraction, RuleDistiller, Update
 from .llm import Client
 from .policy import GENERAL, TASK_PROFILES, MemoryPolicy, detect_profile, score_item
-from .storage import PIN_PRIORITY, PROTECTED_KINDS, MemoryEntry, MemoryStore
+from .storage import PIN_PRIORITY, PROTECTED_KINDS, MemoryEntry, MemoryStore, subject_overlap
 from .tokens import estimate_tokens
 
 DEFAULT_MEMORY_CAP_TOKENS = 3000
@@ -35,6 +35,13 @@ DEFAULT_RECENT_WINDOW = 4
 # 0.85 means "identical except trivial wording" — high enough that facts differing
 # in one informative token (e.g. "us-east-1" vs "us-east-2") are NOT collapsed.
 MERGE_THRESHOLD = 0.85
+# Token-overlap at or above which a *correction* is matched to the statement it
+# replaces. Lower than MERGE_THRESHOLD by design: a correction shares its subject
+# with the predecessor but differs in exactly the tokens that matter.
+SUPERSEDE_THRESHOLD = 0.5
+# Kinds a correction may retire. Arguments/perspectives are reasoning, not
+# state, and are never silently replaced by a one-line correction.
+SUPERSEDABLE_KINDS = ("fact", "conclusion", "preference", "principle", "profile")
 
 
 class MemoryEngine:
@@ -91,23 +98,116 @@ class MemoryEngine:
             ext.facts.extend(turn_ext.facts)
             ext.conclusions.extend(turn_ext.conclusions)
             ext.preferences.extend(turn_ext.preferences)
+            ext.principles.extend(turn_ext.principles)
+            ext.profile.extend(turn_ext.profile)
+            ext.arguments.extend(turn_ext.arguments)
+            ext.perspectives.extend(turn_ext.perspectives)
+            ext.premises_of.update(turn_ext.premises_of)
+            ext.updates.extend(turn_ext.updates)
         self._pending_start = len(self._raw_turns)
         return ext
 
     def merge(self, ext: Extraction, threshold: float = MERGE_THRESHOLD) -> int:
         """Commit distilled entries, deduplicating against existing memory.
 
-        Returns the number of *new* entries committed.
+        Three things happen here, in order:
+
+        1. **Updates** supersede: for each correction, the closest existing entry
+           of the same kind is retired (archived with a pointer) and the new
+           statement inherits its usage/links/pin. If nothing matches, the new
+           statement is simply added — a correction to something never stored is
+           just a fact.
+        2. **Premises** of arguments are committed (deduplicated) and the
+           argument is linked to the *live* premise entries — so the map gains
+           edges, not just nodes.
+        3. Everything else is deduplicated by token overlap and added.
+
+        Returns the number of *new* entries committed (updates count as new).
         """
         committed = 0
+
+        # 1. corrections first, so a superseded entry cannot absorb the new one as a "duplicate"
+        for upd in ext.updates:
+            if self.apply_update(upd, threshold):
+                committed += 1
+
+        # 2. arguments with their premises
+        for arg in ext.arguments:
+            live_ids: List[str] = []
+            for prem in ext.premises_of.get(arg.id, []):
+                existing = self._find_duplicate(prem, threshold)
+                if existing is None:
+                    self.store.add(prem)
+                    committed += 1
+                    existing = prem
+                live_ids.append(existing.id)
+            dup = self._find_duplicate(arg, threshold)
+            if dup is not None:
+                dup.link(*live_ids)
+                continue
+            arg.link(*live_ids)
+            self.store.add(arg)
+            committed += 1
+
+        # 3. everything else
         for cand in ext.all():
+            if cand.kind == "argument" or self.store.get(cand.id) is not None:
+                continue
             if self._find_duplicate(cand, threshold) is not None:
                 continue
             self.store.add(cand)
             committed += 1
+
         self.store.save()
         self.store.write_all_md()
         return committed
+
+    def apply_update(self, upd: Update, threshold: float = MERGE_THRESHOLD) -> bool:
+        """Apply one correction: retire the best-matching predecessor, add the successor.
+
+        A correction shares its *subject* with the statement it replaces and
+        differs in the *value*, so matching uses ``subject_overlap`` (content
+        tokens over the smaller set) rather than the duplicate Jaccard. The
+        rule distiller cannot tell a correction from a refinement ("SQLite for
+        tests" does not retire "Postgres in prod"), so the threshold is
+        conservative; the LLM path supplies an ``old`` paraphrase that raises
+        the match when the model is explicit about what is being replaced.
+
+        The successor takes the predecessor's kind (a correction to a fact is a
+        fact). Returns True if an entry was added.
+        """
+        new = upd.new
+        best, best_score = None, 0.0
+        for existing in self.store.all():
+            if existing.kind not in SUPERSEDABLE_KINDS:
+                continue
+            sc = subject_overlap(existing.text, new.text)
+            if upd.old_hint and upd.old_hint != new.text:
+                sc = max(sc, subject_overlap(existing.text, upd.old_hint))
+            if existing.kind == new.kind:
+                sc += 0.05  # tie-break toward the same kind
+            if sc > best_score:
+                best, best_score = existing, sc
+        if best is not None and best_score >= SUPERSEDE_THRESHOLD:
+            if best.token_overlap(new) >= threshold:
+                best.touch()  # restated, not corrected
+                return False
+            new.kind = best.kind
+            self.store.retire(best.id, new)
+            return True
+        self.store.add(new)
+        return True
+
+    def supersede(self, old_id: str, text: str, **kwargs) -> MemoryEntry:
+        """Explicitly replace an entry by id with a corrected statement (API path)."""
+        old = self.store.get(old_id)
+        if old is None:
+            raise KeyError(f"no entry {old_id!r}")
+        new = MemoryEntry(text=text, kind=kwargs.pop("kind", old.kind), **kwargs)
+        self.store.retire(old_id, new)
+        self.store.save()
+        self.store.write_all_md()
+        return new
 
     def _find_duplicate(self, cand: MemoryEntry, threshold: float) -> Optional[MemoryEntry]:
         for existing in self.store.all(kind=cand.kind):

@@ -35,10 +35,10 @@ What you said the memory should be, and whether it is:
 
 | Vision item | Status | Where | Notes |
 |---|---|---|---|
-| Memory like a **map**, not a list — nodes with edges | **[partial]** | `storage.MemoryEntry.links`, `core.link/related`, `map.md` | Graph exists and is persisted/rendered with backlinks. **Edges are not used for selection**: `Context.build` scores nodes independently; a selected argument does not pull in its premises. See gap G1. |
-| **User profile** | **[built]** | `kind="profile"`, `profile.md`, `USER PROFILE` prompt section, weight 1.2 | Added via `add_profile_entry`; not auto-extracted (G2). |
-| **Different perspectives** (for / against / open) | **[built]** | `kind="perspective"`, `stance`, `PERSPECTIVES` section | Rendered as **FOR / AGAINST / OPEN**. Not auto-extracted (G2). |
-| **Logical arguments** (claim + premises) | **[built]** | `kind="argument"`, `add_argument(links=...)`, `ARGUMENTS` section | Premises linked by ID. Not auto-extracted (G2); premises not co-selected (G1). |
+| Memory like a **map**, not a list — nodes with edges | **[built]** | `storage.MemoryEntry.links`, `policy.link_weight` + `expand_selection`, `context.Context.build` | Edges enter the score (inbound links raise value) and the selection is closed under dependencies: a selected argument brings its premises within budget, evicting low-value leaves if needed, or is dropped rather than shown bare. Premises render under the claim (`⇒ claim / ← premise`). |
+| **User profile** | **[built]** | `kind="profile"`, `profile.md`, `USER PROFILE` prompt section, weight 1.2 | Auto-extracted by both distillers (`I am a … / I work on … / my goal is …`; LLM `profile:[{field,text}]`). |
+| **Different perspectives** (for / against / open) | **[built]** | `kind="perspective"`, `stance`, `PERSPECTIVES` section | Rendered as **FOR / AGAINST / OPEN**. Auto-extracted (`on one hand / on the other`, `the case for/against`; LLM `perspectives:[{question,stance,text}]`). |
+| **Logical arguments** (claim + premises) | **[built]** | `kind="argument"`, `add_argument(links=...)`, `ARGUMENTS` section | LLM path extracts `arguments:[{claim, premises}]`; `merge` commits premises (deduped against memory) and links the claim to the *live* premise entries; premises co-selected at prompt time. |
 | **First principles baked in** | **[built]** | `kind="principle"`, weight 1.4, `PROTECTED_KINDS`, `FIRST PRINCIPLES` section | Never evicted; highest kind weight; pinnable. |
 | **Task memory stronger for coding** | **[built]** | `policy.CODING`: `assistant_turn=0.9`, `task_window_turns=12`, `boost_tags={"code",...}` | Bounded working memory of the model's own code/reasoning, coding only. |
 | **Customizable priority parameters** | **[built]** | `MemoryPolicy`: `kind_weights`, `priority_weight`, `usage_weight`, `recency_weight`, `affinity_weight`, `half_life_turns`, `budget_tokens`, `task_window_turns`; `set_priority`, `pin` | Every term of the scoring function is a parameter; `affinity()` is overridable. |
@@ -49,44 +49,22 @@ What you said the memory should be, and whether it is:
 | Reduces **token cost** | **[built]** (arithmetic) | `tokens.py`, `benchmarks/token_cost` | O(T²) → near-linear; ~50× at 1 000 turns with defaults. |
 | Reduces **context rot** | **[built]** (harness), **[unrun]** (real models) | `benchmarks/context_rot` | Chroma-style focused-vs-full. |
 | Reduces **sycophancy / self-anchoring** | **[built]** (4-arm harness), **[unrun]** | `benchmarks/sycophancy`, arms `full/memory/user_only/truncated` | The hypothesis. Controls isolate self-replay from length. |
-| **Contradictions / updates** ("actually, use SQLite not Postgres") | **[gap]** | — | See G3. Currently a second entry is added; the old conclusion stays. |
+| **Contradictions / updates** ("actually, the demo is Monday") | **[built]** | `storage.retire`, `core.apply_update`/`supersede`, `MemoryEntry.supersedes`, `subject_overlap` | A correction retires the statement it replaces (same subject, different value); the successor inherits usage/pin/links/inbound edges; the predecessor goes to the archive with a `superseded by …` pointer. A *refinement* ("SQLite for tests") does not retire ("Postgres in prod"). Fidelity bench: staleness 0 %, contradiction 0 %. |
 | Persists **across sessions** | **[built]** | `MemoryStore` (`state.json` + `.md` projections); turn counter resumes from max `source_turn` | Memory and recency ages survive restart. The raw recent-turn window is in-memory only — by design (fresh chat), each session starts with the map and no transcript. |
 
-### The three functional gaps
+### The three gaps — closed
 
-**G1 — Edges are stored but not traversed at selection time.**
-`Context.build` (context.py:133–146) scores each entry alone. If an
-`argument` wins the budget its linked premises may be evicted from the prompt,
-so the model sees a conclusion without its support. The map is a map on disk
-and a list in the prompt. *Fix:* after `select_by_score`, one hop of link
-expansion within the remaining budget (premises of selected arguments; the
-subject of selected perspectives), and a `link_weight` term so linked-to
-entries score higher. ~40 lines + tests.
+| | Was | Now |
+|---|---|---|
+| **G1** edges at selection | stored, not traversed | `link_weight` term in `score_item`; `expand_selection` closes the prompt under dependencies within budget |
+| **G2** rich extraction | facts / conclusions / preferences only | `DISTILL_SYSTEM` + `Extraction` cover principles, profile, arguments (with premises), perspectives (with stance), updates; rule distiller catches the explicit forms |
+| **G3** supersession | corrections added siblings | `Update` → `apply_update` → `store.retire`; `subject_overlap` matcher; `SUPERSEDABLE_KINDS` excludes reasoning kinds |
 
-**G2 — The rich kinds are not extracted automatically.**
-`LLMDistiller` (distiller.py:105–133) and `Extraction` (49–61) know only
-`facts / conclusions / preferences`. `principle`, `argument`, `perspective`,
-`profile` enter only through the explicit API (`add_principle`, …). In real
-use the map will not build itself. *Fix:* extend `DISTILL_SYSTEM` and the JSON
-schema to `{facts, conclusions, preferences, principles, profile,
-arguments:[{claim, premises:[…]}], perspectives:[{text, stance}]}`; extend
-`Extraction`; have `merge` create premise nodes and link them. The rule
-distiller can catch a subset (`"the principle is"`, `"on one hand / on the
-other"`, `"I am a …"`). ~120 lines + tests.
-
-**G3 — No supersession: a correction adds a sibling instead of retiring the
-predecessor.**
-`merge` (core.py:97–110) dedupes by token-Jaccard ≥ 0.85; "use SQLite for
-tests, not Postgres" and "build with FastAPI and Postgres" overlap below
-threshold, so both stay active and the prompt carries a contradiction. This is
-the assimilation analogue of never discarding a stale observation. *Fix:* a
-`supersedes` field + `retire(entry_id, by=…)`; the LLM distiller returns
-`updates:[{old_hint, new}]`; the rule path catches `actually / instead /
-no longer / correction:`; retired entries go to the archive with a pointer to
-the successor, so the history is kept but never replayed. ~80 lines + tests.
-
-None of the three changes the architecture; they complete it. G2 and G3 are
-what make the map *self-building* in real sessions instead of demo-built.
+Remaining honest limits: the rule distiller only sees *explicit* phrasings
+(the LLM path is the production one); supersession is conservative by design
+(threshold 0.5 on subject overlap — a correction that shares fewer than half its
+content tokens with the predecessor is added, not merged); and link expansion is
+one hop.
 
 ---
 
@@ -99,11 +77,11 @@ what make the map *self-building* in real sessions instead of demo-built.
    reply)        ├────────────────────────────────────────────────────────────┤
                  │  2. DISTILL     distiller.*        turn → Extraction       │
                  │       RuleDistiller (regex, offline)  |  LLMDistiller (JSON)│
-                 │       kinds today: fact/conclusion/preference   [G2]       │
+                 │       all 7 kinds + arguments' premises + updates          │
                  ├────────────────────────────────────────────────────────────┤
-                 │  3. MERGE       core.merge         dedupe (Jaccard ≥ .85), │
-                 │                                    keep longer wording,    │
-                 │                                    touch()          [G3]   │
+                 │  3. MERGE       core.merge         updates → retire();     │
+                 │                                    premises → link();      │
+                 │                                    dedupe (Jaccard ≥ .85)  │
                  ├────────────────────────────────────────────────────────────┤
                  │  4. TRACK USE   core._track_usage  reply tokens ∩ entry    │
                  │                                    tokens → uses += 1      │
@@ -116,7 +94,8 @@ what make the map *self-building* in real sessions instead of demo-built.
   next prompt ◀─ │  6. ASSEMBLE    context.Context.build                      │
                  │                 candidates = entries ∪ recent turns        │
                  │                 score_item(...) each  →  select_by_score   │
-                 │                 (budget fill, score ≤ 0 excluded)   [G1]   │
+                 │                 (budget fill, score ≤ 0 excluded)          │
+                 │                 expand_selection: claims bring premises    │
                  │                 render sections in fixed order             │
                  └────────────────────────────────────────────────────────────┘
                               ▲                     ▲
@@ -128,7 +107,7 @@ what make the map *self-building* in real sessions instead of demo-built.
 ```
 
 The single most important design fact: **steps 5 and 6 use the same
-`score_item`.** What is valuable enough to be shown is what is valuable
+`score_item`** (including the graph term). What is valuable enough to be shown is what is valuable
 enough to be kept. There is no second ranking system to drift out of sync.
 
 ---
@@ -148,6 +127,7 @@ MemoryEntry
   links         directed edges to other entry IDs (argument → premises, perspective → subject)
   stance        perspective only: for | against | open
   domain        topic label
+  supersedes    IDs this entry replaced (correction lineage)
   id            12-hex
 ```
 
@@ -155,13 +135,13 @@ Kinds and their roles in the prompt:
 
 | kind | prompt section | default weight | protected | who creates it today |
 |---|---|---|---|---|
-| profile | USER PROFILE | 1.2 | no | API only [G2] |
-| principle | FIRST PRINCIPLES | 1.4 | **yes** | API only [G2] |
+| profile | USER PROFILE | 1.2 | no | rule + LLM distiller, API |
+| principle | FIRST PRINCIPLES | 1.4 | **yes** | rule + LLM distiller, API |
 | fact | MEMORY | 1.0 | no | rule + LLM distiller |
 | conclusion | PERSPECTIVES › Conclusions | 1.0 | **yes** | rule + LLM distiller |
 | preference | PERSPECTIVES › Preferences | 1.0 | no | rule + LLM distiller |
-| perspective | PERSPECTIVES › Perspectives (FOR/AGAINST/OPEN) | 0.9 | no | API only [G2] |
-| argument | ARGUMENTS (claim ⇒ premises) | 1.0 | no | API only [G2] |
+| perspective | PERSPECTIVES › Perspectives (FOR/AGAINST/OPEN) | 0.9 | no | rule + LLM distiller, API |
+| argument | ARGUMENTS (⇒ claim ← premises) | 1.0 | no | LLM distiller, API |
 | user_turn | RECENT CONTEXT | 0.6 | — | raw window |
 | assistant_turn | WORKING MEMORY | **0.0** (general) / 0.9 (coding) | — | raw window, task profiles only |
 
@@ -174,7 +154,8 @@ score(item) = kind_weight[kind] × (
                 priority_weight × priority                      # what you said matters
               + usage_weight    × log1p(uses)                   # what your sessions keep using
               + recency_weight  × exp(−age / half_life_turns)   # what is fresh
-              + affinity_weight × affinity(text, tags) )        # what fits the current task
+              + affinity_weight × affinity(text, tags)          # what fits the current task
+              + link_weight     × log1p(inbound_links) )        # what other knowledge rests on
 ```
 
 * `score ≤ 0` is **excluded outright** (not merely deprioritised) — this is how
@@ -245,7 +226,7 @@ future `import_md()` is not built.
 | Instrument | Question | Needs a model? | Status |
 |---|---|---|---|
 | `token_cost/` | O(T²) vs near-linear — how much | no | built; arithmetic |
-| `fidelity/` | assimilation error of the memory: recall vs cap (rate–distortion), distillation loss, usage-protected retention, dedupe | no | built; run |
+| `fidelity/` | assimilation error of the memory: recall vs cap (rate–distortion), distillation loss, usage-protected retention, dedupe, **staleness after corrections** | no | built; run |
 | `context_rot/` | raw transcript vs memory accuracy on planted facts, Chroma method | yes | built; mock only |
 | `sycophancy/` | ToF / NoF / confidence drift across arms `full / memory / user_only / truncated` (+ contributed baselines via `register_arm`) | yes | built; mock only |
 | `budget.py` | price the campaign per model tier before spending | no | built |

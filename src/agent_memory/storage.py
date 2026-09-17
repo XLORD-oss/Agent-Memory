@@ -75,6 +75,7 @@ class MemoryEntry:
     links: List[str] = field(default_factory=list)  # edge: IDs of related entries
     stance: str = ""                                 # perspective: for/against/open
     domain: str = ""                                 # topic domain this belongs to
+    supersedes: List[str] = field(default_factory=list)  # IDs this entry replaced (correction lineage)
     id: str = ""
 
     def __post_init__(self) -> None:
@@ -126,6 +127,31 @@ class MemoryEntry:
 
 def _tokenize(text: str) -> List[str]:
     return re.findall(r"[a-z0-9']+", text.lower())
+
+
+_STOPWORDS = frozenset("""
+a an the and or but not no nor for to of in on at with by from into over under
+is are was were be been being it its this that these those we i you he she they
+our my your their as so do did does done will would should could can may might
+must use using used our own than then there here very just also only actually
+instead now
+""".split())
+
+
+def content_tokens(text: str) -> set:
+    """Tokens that carry the *subject* of a statement (stopwords removed)."""
+    return {t for t in _tokenize(text) if t not in _STOPWORDS and len(t) > 1}
+
+
+def subject_overlap(a: str, b: str) -> float:
+    """How much two statements are *about the same thing*: shared content tokens
+    over the smaller content set. A correction ("the demo is Monday") scores high
+    against its predecessor ("the demo is Friday") even though their Jaccard is
+    low, because they share the subject and differ only in the value."""
+    ca, cb = content_tokens(a), content_tokens(b)
+    if not ca or not cb:
+        return 0.0
+    return len(ca & cb) / min(len(ca), len(cb))
 
 
 def _kind_icon(kind: str) -> str:
@@ -303,11 +329,18 @@ class MemoryStore:
 
     # -- archiving ----------------------------------------------------------
 
-    def archive_entries(self, entry_ids: List[str], era: Optional[str] = None) -> int:
+    def archive_entries(
+        self,
+        entry_ids: List[str],
+        era: Optional[str] = None,
+        reasons: Optional[Dict[str, str]] = None,
+    ) -> int:
         """Move entries out of the active store into an era-dated archive file.
 
         Returns the number of entries moved. Archived entries keep their full text
-        (audit trail) but stop consuming active-context tokens.
+        (audit trail) but stop consuming active-context tokens. ``reasons`` maps
+        entry id → short note written next to the line (e.g. ``superseded by …``)
+        so the archive says *why* something left, not just that it did.
         """
         if era is None:
             era = datetime.date.today().isoformat()
@@ -321,9 +354,49 @@ class MemoryStore:
                 self.remove(eid)
 
         if archived:
+            reasons = reasons or {}
             with open(archive_path, "a", encoding="utf-8") as fh:
                 fh.write(f"<!-- archived {_now()} -->\n")
                 for e in archived:
-                    fh.write(f"- {_kind_icon(e.kind)} [{e.kind}] {e.text}\n")
+                    why = f"  _({reasons[e.id]})_" if e.id in reasons else ""
+                    fh.write(f"- {_kind_icon(e.kind)} [{e.kind}] {e.text}{why}\n")
                 fh.write("\n")
         return len(archived)
+
+    def retire(self, old_id: str, successor: MemoryEntry) -> bool:
+        """Supersede ``old_id`` with ``successor``: the successor inherits the
+        predecessor's usage history, links, pin, priority and inbound edges; the
+        predecessor moves to the archive with a pointer to what replaced it.
+
+        This is how a correction ("actually, X not Y") retires the stale
+        statement instead of leaving a contradiction in the active memory —
+        the history is kept, but it is never replayed.
+        """
+        old = self.get(old_id)
+        if old is None or old.id == successor.id:
+            return False
+        # lineage + inherited value
+        if old.id not in successor.supersedes:
+            successor.supersedes.append(old.id)
+        successor.supersedes.extend(x for x in old.supersedes if x not in successor.supersedes)
+        successor.uses = max(successor.uses, old.uses)
+        successor.last_used_at = successor.last_used_at or old.last_used_at
+        successor.priority = max(successor.priority, old.priority)
+        successor.pinned = successor.pinned or old.pinned
+        successor.link(*old.links)
+        if not successor.domain:
+            successor.domain = old.domain
+        for t in old.tags:
+            if t not in successor.tags:
+                successor.tags.append(t)
+        # redirect inbound edges so arguments/perspectives point at the live version
+        for e in self._entries:
+            if old.id in e.links:
+                e.links = [successor.id if x == old.id else x for x in e.links]
+                if e.links.count(successor.id) > 1:
+                    seen = set()
+                    e.links = [x for x in e.links if not (x in seen or seen.add(x))]
+        if self.get(successor.id) is None:
+            self.add(successor)
+        self.archive_entries([old.id], reasons={old.id: f"superseded by «{_short_label(successor.text)}»"})
+        return True

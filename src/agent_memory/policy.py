@@ -63,6 +63,11 @@ class MemoryPolicy:
 
     ``protect_conclusions`` — never evict decisions ("concluded X") from memory,
     regardless of score. The record survives; the momentum behind it doesn't.
+
+    ``link_weight`` / ``expand_links`` — the graph terms. Entries other entries
+    depend on score higher (log-damped per inbound edge), and after budget fill
+    the premises of a selected argument are pulled in while budget remains, so
+    a claim is never shown without its support.
     """
 
     kind_weights: Dict[str, float] = field(
@@ -88,6 +93,13 @@ class MemoryPolicy:
     protect_conclusions: bool = True
     boost_tags: set = field(default_factory=set)
     boost_tokens: set = field(default_factory=set)
+    # Graph term: how strongly an entry that is *linked to* by others (a premise
+    # of an argument, the subject of a perspective) gains value, per inbound
+    # edge (log-damped). 0 turns the map back into a list.
+    link_weight: float = 0.15
+    # After budget fill, pull in the direct dependencies (premises) of selected
+    # arguments/perspectives that missed the cut, while budget remains.
+    expand_links: bool = True
 
     def affinity(self, text: str, tags: Iterable[str]) -> float:
         """Task affinity: 1.0 when the item matches this policy's task profile.
@@ -242,6 +254,7 @@ def score_item(
     age_turns: int,
     policy: MemoryPolicy,
     affinity: float = 0.0,
+    inbound_links: int = 0,
 ) -> float:
     """Value of one candidate unit. Higher = wins the budget; survives eviction."""
     kind_weight = policy.kind_weights.get(kind, 1.0)
@@ -250,6 +263,7 @@ def score_item(
         + policy.usage_weight * math.log1p(max(0, uses))
         + policy.recency_weight * math.exp(-max(0, age_turns) / max(1, policy.half_life_turns))
         + policy.affinity_weight * affinity
+        + policy.link_weight * math.log1p(max(0, inbound_links))
     )
     return kind_weight * value
 
@@ -272,3 +286,63 @@ def select_by_score(candidates: list, budget_tokens: int) -> list:
         total += cost
         selected.append(c)
     return selected
+
+
+def expand_selection(selected: list, candidates: list, budget_tokens: int, hops: int = 1) -> list:
+    """Make the selection *closed under dependencies*, within the budget.
+
+    Each candidate may carry ``links`` (IDs) and ``id``. For every selected item
+    with links, its linked candidates are pulled in — in score order, never with
+    ``score <= 0`` (the fresh-chat exclusion still holds). One hop by default:
+    an argument brings its premises, not its premises' premises.
+
+    If the budget cannot fit an item's dependencies, the lowest-scoring
+    *unlinked* selected items are evicted to make room — a claim shown without
+    its support is worth less than a plain fact shown whole. If even that is not
+    enough, the dependent item itself is dropped rather than shown bare.
+    Returns the new selection.
+    """
+    by_id = {c["id"]: c for c in candidates if c.get("id")}
+    chosen = list(selected)
+    chosen_ids = {c["id"] for c in chosen if c.get("id")}
+    linked_to = {lid for c in candidates for lid in (c.get("links") or [])}
+
+    def cost(c) -> int:
+        return max(1, c.get("tokens", 1))
+
+    total = sum(cost(c) for c in chosen)
+    frontier = [c for c in chosen if c.get("links")]
+    for _ in range(max(0, hops)):
+        added = []
+        for parent in sorted(frontier, key=lambda c: c["score"], reverse=True):
+            deps = [by_id[l] for l in (parent.get("links") or []) if l in by_id and l not in chosen_ids and by_id[l]["score"] > 0]
+            if not deps:
+                continue
+            need = sum(cost(d) for d in deps)
+            # evict low-value leaves (selected, unlinked, not a dependency of anything) to make room
+            while total + need > budget_tokens:
+                leaves = [c for c in chosen if c.get("id") and not c.get("links")
+                          and c["id"] not in linked_to and c["id"] != parent.get("id")
+                          and c["score"] < parent["score"]]
+                if not leaves:
+                    break
+                victim = min(leaves, key=lambda c: c["score"])
+                chosen.remove(victim)
+                chosen_ids.discard(victim["id"])
+                total -= cost(victim)
+            if total + need > budget_tokens:
+                # cannot support the claim: drop it rather than show it bare
+                if parent in chosen:
+                    chosen.remove(parent)
+                    chosen_ids.discard(parent.get("id"))
+                    total -= cost(parent)
+                continue
+            for d in deps:
+                chosen.append(d)
+                chosen_ids.add(d["id"])
+                total += cost(d)
+                added.append(d)
+        if not added:
+            break
+        frontier = added
+    return chosen

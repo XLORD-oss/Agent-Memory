@@ -21,6 +21,13 @@ with real models.
       per-turn token curve, usage report, profile comparison, plots
 - [x] Unit + harness tests, CI, packaging
 
+## v0.1.1 — the map builds itself (done)
+
+* Rich extraction (principles, profile, arguments+premises, perspectives, updates) in both distillers.
+* Supersession: corrections retire predecessors (`retire`, `subject_overlap`), archive keeps lineage.
+* Edges at selection: `link_weight`, `expand_selection`; premises render under claims.
+* Fidelity benchmark: staleness metric.
+
 ## v0.2 — make the numbers real
 
 - [ ] Run both benchmarks on ≥5 frontier models (Claude, GPT, Gemini, Qwen, Llama),

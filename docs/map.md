@@ -106,3 +106,41 @@ usually make the cut while trivia facts compete.
   from can't be silently archived away by an aggressive cap.
 * **The user profile is always present** — the model constantly knows who it's
   working for, which is the cheapest possible guard against generic answers.
+
+## The map builds itself (since G1–G3)
+
+Three behaviours that used to need the explicit API now happen in `process_turn`:
+
+* **Rich extraction.** `LLMDistiller` returns the whole map from one turn —
+  `principles`, `profile:[{field,text}]`, `arguments:[{claim,premises}]`,
+  `perspectives:[{question,stance,text}]`, `updates:[{old,new,kind}]` — and
+  `RuleDistiller` catches the explicit forms offline (`Principle: …`,
+  `I am a …`, `on one hand … on the other …`, `Actually, …`).
+* **Edges on merge.** An argument's premises are committed (deduplicated
+  against what is already in memory) and the claim is linked to the *live*
+  premise entries.
+* **Supersession.** A correction retires the statement it replaces
+  (`store.retire`): the successor inherits usage, pin, links and inbound
+  edges; the predecessor goes to `archive/` with a `superseded by …` note.
+  Matching is on *subject* (`subject_overlap`, content tokens), so "the demo is
+  Monday" replaces "the demo is Friday" while "SQLite for tests" leaves
+  "Postgres in prod" alone. `engine.supersede(old_id, text)` is the explicit form.
+
+And one at prompt time:
+
+* **Closure under dependencies.** `Context.build` scores entries with a
+  `link_weight` term (things other knowledge rests on are worth more) and then
+  runs `expand_selection`: a selected argument brings its premises within the
+  budget — evicting low-value unlinked leaves to make room, or dropping the
+  claim rather than showing it unsupported. Premises render under the claim:
+
+  ```
+  ARGUMENTS
+  ## Derived claims (⇒ claim, ← premise)
+  - ⇒ Forecast skill is bounded no matter how good the model is.
+      ← Close trajectories diverge exponentially in a chaotic system.
+      ← Initial conditions are only known to finite precision.
+  ```
+
+  `MemoryPolicy(link_weight=0, expand_links=False)` turns the map back into a
+  list — useful as an ablation.

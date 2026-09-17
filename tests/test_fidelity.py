@@ -86,3 +86,21 @@ def test_usage_tracking_adds_uses_to_referenced_entries():
         e for e in eng.store.all() if any(v in e.text for v in values) and e.uses > 0
     ]
     assert len(referenced_used) >= 1
+
+def test_staleness_metric_supersession_holds_current_value_only():
+    import tempfile
+    from agent_memory.core import MemoryEngine
+    from agent_memory.distiller import RuleDistiller
+    from benchmarks.fidelity.run import staleness
+    from benchmarks.fidelity.tasks import generate_corrections
+
+    corr = generate_corrections(n=6, seed=3)
+    eng = MemoryEngine(state_dir=tempfile.mkdtemp(), distiller=RuleDistiller(), memory_cap_tokens=100_000)
+    for t in corr.turns:
+        eng.process_turn(t["user"])
+    st = staleness(eng, corr.corrections)
+    assert st["current"] == 1.0 and st["contradiction"] == 0.0 and st["stale_only"] == 0.0
+    assert st["active_entries"] == 6
+    # the superseded values are in the archive, not gone
+    archived = "".join(p.read_text() for p in eng.store.archive_dir.glob("*.md"))
+    assert all(c.old in archived for c in corr.corrections)

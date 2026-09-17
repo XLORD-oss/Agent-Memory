@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from .policy import TASK_PROFILES, MemoryPolicy, score_item, select_by_score
+from .policy import TASK_PROFILES, MemoryPolicy, expand_selection, score_item, select_by_score
 from .tokens import estimate_tokens
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -70,6 +70,7 @@ class Context:
     used_tokens: int = 0
     scored_candidates: int = 0
     prompt_tokens: int = 0
+    linked_in: List[str] = field(default_factory=list)  # ids in the prompt after link expansion
 
     @property
     def has_working_memory(self) -> bool:
@@ -131,15 +132,23 @@ class Context:
         current_turn = engine.raw_turn_count
 
         # ---- 1. candidate pool: memory entries ----------------------------
+        # Graph structure enters the score: an entry that other entries depend
+        # on (a premise, a perspective's subject) is worth more than an orphan.
+        entries = engine.store.all()
+        inbound: Dict[str, int] = {}
+        for e in entries:
+            for lid in e.links:
+                inbound[lid] = inbound.get(lid, 0) + 1
         candidates: List[Dict] = []
-        for e in engine.store.all():
+        for e in entries:
             age = max(0, current_turn - e.source_turn) if e.source_turn else 0
             score = score_item(
                 e.text, e.kind, e.effective_priority(), e.uses, age, pol,
                 affinity=pol.affinity(e.text, e.tags),
+                inbound_links=inbound.get(e.id, 0),
             )
             candidates.append(
-                {"kind": e.kind, "text": e.text, "score": score,
+                {"id": e.id, "kind": e.kind, "text": e.text, "score": score,
                  "tokens": estimate_tokens(e.text), "entry": e,
                  "tags": list(e.tags), "stance": e.stance, "links": list(e.links)}
             )
@@ -178,7 +187,11 @@ class Context:
         ctx = cls(mode=profile, policy=pol, budget_tokens=budget, user_text=user_text)
         ctx.scored_candidates = len(candidates)
         selected = select_by_score(candidates, budget)
+        if pol.expand_links:
+            # a selected argument brings its premises; a perspective its subject
+            selected = expand_selection(selected, candidates, budget)
         ctx.used_tokens = sum(c["tokens"] for c in selected)
+        ctx.linked_in = [c["id"] for c in selected if c.get("id")]  # for inspection
 
         # ---- 4. render into sections ---------------------------------------
         facts = [c for c in selected if c["kind"] == "fact"]
@@ -209,10 +222,16 @@ class Context:
             ctx.profile = "## User profile\n" + "\n".join(lines)
 
         if args:
+            by_id = {c["id"]: c for c in candidates if c.get("id")}
+            shown = {c["id"] for c in selected if c.get("id")}
             lines = []
             for c in sorted(args, key=lambda c: -c["score"]):
                 lines.append(f"- ⇒ {c['text']}")
-            ctx.arguments = "## Derived claims\n" + "\n".join(lines)
+                for lid in c.get("links") or []:
+                    dep = by_id.get(lid)
+                    if dep is not None and lid in shown:
+                        lines.append(f"    ← {dep['text']}")
+            ctx.arguments = "## Derived claims (⇒ claim, ← premise)\n" + "\n".join(lines)
 
         if pers:
             chunks = []

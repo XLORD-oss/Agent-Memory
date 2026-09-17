@@ -126,6 +126,44 @@ def generate_conversation(
     return Conversation(facts=facts, turns=turns, referenced_ids=referenced_ids)
 
 
+@dataclass
+class Correction:
+    """A planted value change: ``name`` was ``old``; later corrected to ``new``."""
+
+    id: int
+    name: str
+    old: str
+    new: str
+
+
+@dataclass
+class CorrectionSet:
+    corrections: List[Correction] = field(default_factory=list)
+    turns: List[dict] = field(default_factory=list)
+
+
+def generate_corrections(n: int = 8, seed: int = 1) -> CorrectionSet:
+    """Facts stated once, then corrected. Measures **staleness**: after the
+    corrections, does the active memory hold the new value, the old value, or
+    both (a contradiction)? Values are drawn from a disjoint pool region so they
+    cannot collide with `generate_conversation`'s facts.
+    """
+    rng = random.Random(seed)
+    names = rng.sample(NAME_POOL[20:], n)
+    olds = rng.sample(VALUE_POOL[20:], n)
+    pool = [v for v in VALUE_POOL[20:] if v not in olds]
+    news = rng.sample(pool, n) if len(pool) >= n else [f"{v}2" for v in olds]
+    corrections = [Correction(i, names[i], olds[i], news[i]) for i in range(n)]
+    turns: List[dict] = []
+    for c in corrections:
+        turns.append({"user": f"Remember that the deadline for the {c.name} milestone is {c.old}.", "assistant": None})
+    for d in rng.sample(DISTRACTORS, min(4, len(DISTRACTORS))):
+        turns.append({"user": d, "assistant": None})
+    for c in corrections:
+        turns.append({"user": f"Actually, the deadline for the {c.name} milestone is {c.new}.", "assistant": None})
+    return CorrectionSet(corrections=corrections, turns=turns)
+
+
 def planted_occurrences(conversation: Conversation) -> int:
     """How many fact-planting turns exist (before dedupe)."""
     return len([t for t in conversation.turns if "[[FACT:" in (t.get("user") or "")])

@@ -35,7 +35,12 @@ from agent_memory.tokens import estimate_tokens  # noqa: E402
 
 from benchmarks.common.harness import write_json  # noqa: E402
 from benchmarks.common.memory_builder import MarkerDistiller  # noqa: E402
-from benchmarks.fidelity.tasks import Conversation, generate_conversation, planted_occurrences  # noqa: E402
+from benchmarks.fidelity.tasks import (  # noqa: E402
+    Conversation,
+    generate_conversation,
+    generate_corrections,
+    planted_occurrences,
+)
 
 
 @dataclass
@@ -129,6 +134,25 @@ def filtered_recall(engine: MemoryEngine, conversation: Conversation, ids: set) 
         return 0.0
     hits = sum(1 for f in conversation.facts if f.id in ids and f.value in active_text)
     return hits / len(ids)
+
+
+def staleness(engine: MemoryEngine, corrections) -> dict:
+    """After corrections: fraction of items whose active memory holds the new
+    value (``current``), still holds the old value (``stale``), or holds both
+    (``contradiction``). A list-shaped memory scores contradiction = 1.0; a
+    state estimator that discards superseded observations scores 0.0.
+    """
+    active = " ".join(e.text.lower() for e in engine.store.all())
+    n = max(1, len(corrections))
+    cur = stale = both = 0
+    for c in corrections:
+        has_new = f"{c.name} milestone is {c.new}".lower() in active
+        has_old = f"{c.name} milestone is {c.old}".lower() in active
+        cur += has_new
+        stale += has_old and not has_new
+        both += has_new and has_old
+    return {"current": cur / n, "stale_only": stale / n, "contradiction": both / n,
+            "active_entries": len(engine.store.all())}
 
 
 def format_row(row: FidelityRow) -> str:
@@ -252,6 +276,18 @@ def main() -> None:
         print(f"  vs no usage tracking: referenced state fidelity {off_active:.0%} "
               f"({ref_active - off_active:+.0%} gain)")
 
+    # ---- staleness / supersession -----------------------------------------
+    corr = generate_corrections(n=max(4, args.facts // 3), seed=args.seed + 1)
+    eng_c = build_engine(tempfile.mkdtemp(prefix="fidelity-"), RuleDistiller(), 100_000, args.archive_policy, args.profile)
+    for t in corr.turns:
+        eng_c.process_turn(t.get("user") or "", t.get("assistant"))
+    st = staleness(eng_c, corr.corrections)
+    print(f"\nStaleness after {len(corr.corrections)} corrections (rules distiller, uncapped):")
+    print(f"  current value held: {st['current']:.0%} · stale value only: {st['stale_only']:.0%} · "
+          f"contradiction (both): {st['contradiction']:.0%} · active entries: {st['active_entries']} "
+          f"(ideal = {len(corr.corrections)})")
+    print("  a transcript-shaped memory would score contradiction = 100%; supersession retires the old value.")
+
     # ---- dedupe check -----------------------------------------------------
     print(f"\nDedupe: {planted} planted occurrences -> {rows[-1].distinct_facts} distinct facts "
           f"in active memory at the largest cap (ideal = {len(conversation.facts)}) "
@@ -272,6 +308,7 @@ def main() -> None:
                 "archive_policy": args.archive_policy,
                 "rows": [r.__dict__ for r in rows],
                 "distillation_loss": dist_loss,
+                "staleness": st,
             },
         )
 
